@@ -483,7 +483,8 @@ class TeamsDialog(QDialog):
 class ShareHostDialog(QDialog):
     """Pick the team (and group) to share a personal host with."""
 
-    def __init__(self, alias: str, teams: list[TeamInfo], has_host_key: bool, parent: QWidget | None = None) -> None:
+    def __init__(self, alias: str, teams: list[TeamInfo], has_host_key: bool, parent: QWidget | None = None,
+                 groups: list[str] | None = None, default_group: str = "") -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Share “{alias}” with a team")
         self.setMinimumWidth(440)
@@ -492,10 +493,17 @@ class ShareHostDialog(QDialog):
         self.team = QComboBox()
         for team in teams:
             self.team.addItem(team.name, team.id)
-        self.group = QLineEdit()
-        self.group.setPlaceholderText("optional, e.g. Production")
+        # Group inside the team: pick an existing one (yours or the team's) or type a new one
+        self.group_combo = QComboBox()
+        self.group_combo.setEditable(True)
+        self.group_combo.addItem("")
+        for name in sorted({g for g in (groups or []) if g} | ({default_group} if default_group else set()), key=str.lower):
+            self.group_combo.addItem(name)
+        self.group_combo.setCurrentText(default_group)
+        self.group_combo.lineEdit().setPlaceholderText("no group — or pick/type one, e.g. Staging EU")
+        self.group = self.group_combo.lineEdit()
         form.addRow("Team", self.team)
-        form.addRow("Group", self.group)
+        form.addRow("Group", self.group_combo)
         layout.addLayout(form)
         shared = ("Shared: HostName, User, Port, ProxyJump, IdentityFile path (as a hint), safe options"
                   + (" and the host key fingerprint from your known_hosts" if has_host_key else "") + ".")

@@ -481,3 +481,34 @@ def test_worker_callbacks_after_session_destroyed_do_not_crash(qapp) -> None:
         backend.stop.set()
         backend.thread.join(2)
     process(qapp, 50)  # queued events for dead sessions are dropped silently
+
+
+def test_share_single_host_keeps_or_picks_group(window, qapp, monkeypatch) -> None:
+    import ssh_terminal.ui.main_window as mw
+    from ssh_terminal.services.team_service import TeamInfo
+
+    team = TeamInfo(7, "devops", "devops", "owner")
+    saved: list[tuple[dict, int | None]] = []
+    teams = window.ctx.teams
+    monkeypatch.setattr(type(teams), "teams", property(lambda self: [team]), raising=False)
+    monkeypatch.setattr(teams, "team_hosts", lambda team_id: [{"alias": "server-hml", "id": 41}])
+    monkeypatch.setattr(teams, "save_host", lambda tid, payload, host_id=None: saved.append((payload, host_id)) or {})
+    monkeypatch.setattr(window, "sync_teams", lambda *a, **k: None)
+    teams.host_groups = {"other-vm": "PROD ASIA"}
+    window.settings.groups = {"Staging EU": ["server-prod", "server-hml"]}
+    seen = {}
+
+    class FakeDialog(mw.ShareHostDialog):
+        def exec(self):
+            seen["groups"] = [self.group_combo.itemText(i) for i in range(self.group_combo.count())]
+            seen["default"] = self.group.text()
+            return True
+
+    monkeypatch.setattr(mw, "ShareHostDialog", FakeDialog)
+    window.share_host("server-prod", 7)
+    _wait_for(qapp, lambda: len(saved) == 1)
+    assert seen["default"] == "Staging EU" and {"Staging EU", "PROD ASIA"} <= set(seen["groups"])
+    assert saved[0][0]["group"] == "Staging EU" and saved[0][1] is None
+    window.share_host("server-hml", 7)  # already in the team -> updated (moved into the group)
+    _wait_for(qapp, lambda: len(saved) == 2)
+    assert saved[1][0]["group"] == "Staging EU" and saved[1][1] == 41

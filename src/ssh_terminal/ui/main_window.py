@@ -1354,18 +1354,26 @@ class MainWindow(QMainWindow):
         if host is None or not teams:
             return
         keys = self._host_keys_for(alias)
-        dlg = ShareHostDialog(alias, teams, bool(keys), self)
+        groups = [*self.settings.groups, *self.ctx.teams.host_groups.values()]
+        dlg = ShareHostDialog(alias, teams, bool(keys), self, groups=groups,
+                              default_group=self.settings.group_of(alias) or "")
         dlg.team.setCurrentIndex(max(0, dlg.team.findData(team_id)))
         if not dlg.exec():
             return
         chosen = dlg.team.currentData()
-        payload = host_to_payload(host, dlg.group.text().strip() or (self.settings.group_of(alias) or ""), keys)
+        group = " ".join(dlg.group.text().split())
+        payload = host_to_payload(host, group, keys)
 
         def shared(_r: object) -> None:
-            self.statusBar().showMessage(f"“{alias}” shared with the team. Members will see it on their next sync.", 6000)
+            where = f" in group “{group}”" if group else ""
+            self.statusBar().showMessage(f"“{alias}” shared with the team{where}. Members will see it on their next sync.", 6000)
             self.sync_teams(force=True)
 
-        run_async(lambda: self.ctx.teams.save_host(chosen, payload), on_done=shared,
+        def upsert() -> object:  # sharing again moves the host to the chosen group instead of failing
+            existing = {h["alias"]: h["id"] for h in self.ctx.teams.team_hosts(chosen)}
+            return self.ctx.teams.save_host(chosen, payload, existing.get(alias))
+
+        run_async(upsert, on_done=shared,
                   on_error=lambda e: show_error(self, FriendlyError("Could not share host", str(e))), name="team-share")
 
     def share_group(self, group: str, team_id: int) -> None:
