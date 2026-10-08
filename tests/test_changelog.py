@@ -40,3 +40,15 @@ def test_bundled_changelog_has_current_version() -> None:
     releases = load_releases()
     assert releases and releases[0].version == __version__, "add a CHANGELOG entry when bumping __version__"
     assert all(r.sections for r in releases)
+
+
+def test_root_changelog_and_package_version_in_sync() -> None:
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    bundled = root / "src" / "ssh_terminal" / "resources" / "CHANGELOG.md"
+    assert (root / "CHANGELOG.md").read_text(encoding="utf-8") == bundled.read_text(encoding="utf-8"), \
+        "copy src/ssh_terminal/resources/CHANGELOG.md to the repository root"
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["version"] == __version__, "bump pyproject.toml together with __version__"

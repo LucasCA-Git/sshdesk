@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sshdesk"
-version = "1.0.0"
+version = "1.1.0"
 description = "SSH connection manager and terminal for Windows and Linux, driven by your ~/.ssh/config"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12"
-authors = [{ name = "SSHDesk contributors" }]
+authors = [{ name = "Lucas Cardoso Alecrim" }]
+maintainers = [{ name = "Lucas Cardoso Alecrim" }]
 keywords = ["ssh", "terminal", "ssh-config", "pyside6", "paramiko", "devops"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -31,6 +32,12 @@ dependencies = [
     "keyring>=24",
     "pywinpty>=2.0.13; sys_platform == 'win32'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/LucasCA-Git/sshdesk"
+Documentation = "https://github.com/LucasCA-Git/sshdesk/blob/main/docs/COMO_FUNCIONA.md"
+Changelog = "https://github.com/LucasCA-Git/sshdesk/blob/main/CHANGELOG.md"
+Issues = "https://github.com/LucasCA-Git/sshdesk/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5", "pyinstaller>=6.6"]
