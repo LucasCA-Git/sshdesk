@@ -39,7 +39,7 @@ Cliente SSH desktop para **Windows** e **Linux**, escrito em Python + PySide6 (Q
 **Conexões**
 - Um clique/duplo clique conecta: host, usuário, porta e chave vêm do SSH config.
 - Autenticação: chave (inclusive chave com passphrase e certificados `-cert.pub`), ssh-agent / Pageant / agente do OpenSSH para Windows, keyboard-interactive (2FA/OTP) e senha.
-- Senhas e passphrases **só** no cofre do sistema (Windows Credential Manager / Secret Service via `keyring`), e só se você marcar “Save”.
+- Senhas e passphrases ficam no cofre do sistema (Windows Credential Manager / Secret Service via `keyring`) e só se você marcar “Save password”. Sem cofre do sistema (WSL, servidor), vão para um cofre local criptografado (`credentials.vault`, Fernet/AES, chave `vault.key` só legível pelo usuário).
 - `ProxyJump` nativo (multi-hop `a,b,c`, `user@host:port`), `ProxyCommand`, `ForwardAgent`, `Compression`, `ServerAliveInterval`, `IdentitiesOnly`, `PreferredAuthentications`, `StrictHostKeyChecking` (`ask`/`yes`/`no`/`accept-new`).
 - `known_hosts`: verificação de host key, diálogo com fingerprint SHA256 para hosts novos, bloqueio com instrução de `ssh-keygen -R` quando a chave muda. O arquivo só recebe *append* (nunca é reescrito).
 - **Test Connection** (DNS → TCP → autenticação SSH) em background.
@@ -51,7 +51,10 @@ Cliente SSH desktop para **Windows** e **Linux**, escrito em Python + PySide6 (Q
 - Teclado completo: Ctrl+C/D/L/Z, setas, Home/End, PgUp/PgDn, F1–F12, Alt como Meta, AltGr/teclas mortas (ABNT2) e IME.
 - Scrollback configurável (Shift+PgUp/PgDn), seleção por caractere/palavra (duplo clique)/linha (triplo clique), copiar/colar, copy-on-select, paste com botão direito ou do meio (Linux).
 - Terminal local: bash/zsh/fish no Linux (PTY real com controle de jobs); PowerShell 7, Windows PowerShell, cmd e WSL no Windows (ConPTY).
-- Abas com status 🟢🟡🔴, reabrir aba fechada, split panes (direita/baixo, aninháveis).
+- Abas com status 🟢🟡🔴, reabrir aba fechada, split panes (direita/baixo, aninháveis). Cada split pode abrir **outro host** ou shell (menu ao clicar no botão de split, ou *Open to the Right/Below* no menu do host).
+- **Arquivos (SFTP)** como no Termius: `+` › *Files (SFTP)* abre uma aba com *este computador | host*; no menu do host (*Files (SFTP)*) ou no botão de split dá para abrir a pasta numa nova aba, à direita ou abaixo, ao lado dos terminais. Cada painel tem um seletor de host no topo. **Arraste arquivos do Explorer/gerenciador de arquivos** para a pasta remota (upload), arraste entre painéis (upload/download/host→host) ou para uma subpasta no mesmo painel (mover). Também: nova pasta, renomear (F2), apagar (Del), pastas inteiras, barra de progresso com cancelar e aviso antes de sobrescrever. Usa a mesma autenticação/ProxyJump dos terminais.
+- Botão na barra de abas (à esquerda) mostra/esconde a lista de hosts (`Ctrl+Shift+B`).
+- **Broadcast input** (`Ctrl+Shift+I` ou ícone 📡 no cabeçalho): o que você digita em um terminal vai para todos os terminais da aba (borda amarela + selo BROADCAST).
 
 **Interface**
 - Tema Dark (padrão), Light e System; esquemas de cor do terminal: Default Dark, Dracula, Solarized Dark, Monokai, Nord, Gruvbox, Default Light.
@@ -102,7 +105,7 @@ sshdesk
 ```
 
 > No Linux, o Qt precisa de algumas bibliotecas do sistema. Em Debian/Ubuntu: `sudo apt install libxcb-cursor0 libxkbcommon0 libegl1`.
-> Para guardar senhas no Linux é preciso um Secret Service ativo (GNOME Keyring ou KWallet).
+> No Linux com Secret Service (GNOME Keyring/KWallet) as senhas vão para ele; sem ele (ex.: WSL) vão para o cofre local criptografado.
 
 ## Development
 
@@ -145,7 +148,8 @@ python -m ssh_terminal --debug               # log detalhado no console
 | Buscar conexões | `Ctrl+Shift+F` |
 | Settings | `Ctrl+,` |
 | Copiar / Colar | `Ctrl+Shift+C` / `Ctrl+Shift+V` (também `Shift+Insert`) |
-| Split direita / baixo | `Ctrl+Shift+\` / `Ctrl+Shift+-` |
+| Split direita / baixo (escolhe o host) | `Ctrl+Shift+\` / `Ctrl+Shift+-` |
+| Broadcast input na aba | `Ctrl+Shift+I` |
 | Fonte maior / menor / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
 | Nova conexão | `Ctrl+Shift+N` |
 | Recarregar SSH config | `F5` |
@@ -306,10 +310,10 @@ Os testes usam um `HOME` temporário: o seu `~/.ssh/config` real **nunca** é to
 |---|---|
 | “Host key verification failed — has CHANGED” | O servidor foi reinstalado ou o IP mudou. Se confiar, rode o `ssh-keygen -R` mostrado em *View technical details*. |
 | “Authentication failed” | Veja *Details*: lista métodos tentados e aceitos pelo servidor. Confira `User`, se a chave pública está no `authorized_keys`, e *Diagnostics › SSH Agent*. |
-| Chave com passphrase pede sempre | Marque “Save in system keyring” no prompt, ou carregue a chave no agente (`ssh-add`). |
+| Chave com passphrase pede sempre | Marque “Save password” no prompt, ou carregue a chave no agente (`ssh-add`). |
 | Terminal local não abre no Windows | Instale `pywinpty` (`pip install pywinpty`); requer Windows 10 1809+. |
 | `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"` | `sudo apt install libxcb-cursor0 libxkbcommon0 libegl1`. |
-| Senhas não são salvas no Linux | Sem Secret Service ativo. *Diagnostics* mostra o backend do keyring. |
+| Onde a senha foi salva? | *Settings › Security › Stored in* mostra o keyring do sistema ou o cofre local criptografado. |
 | Config editado por fora não aparece | `F5` (Reload) ou ative *Settings › General › Watch the SSH config*. |
 | Precisa de mais detalhes | Rode com `--debug` e veja *Help › Open Log Folder*. |
 
