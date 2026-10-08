@@ -254,10 +254,10 @@ class SettingsDialog(QDialog):
 
         # Security --------------------------------------------------------------
         page, form = _page("Security")
-        self.allow_keyring = QCheckBox("Allow saving passwords/passphrases in the system keyring")
+        self.allow_keyring = QCheckBox("Allow saving passwords/passphrases (encrypted)")
         self.allow_keyring.setChecked(s.allow_keyring)
         form.addRow("", self.allow_keyring)
-        form.addRow("Keyring backend", QLabel(keyring_backend))
+        form.addRow("Stored in", QLabel(keyring_backend))
         self.strict = QComboBox()
         for label, value in (
             ("Ask (recommended)", "ask"),
@@ -311,7 +311,7 @@ class SettingsDialog(QDialog):
 
     def _clear(self) -> None:
         count = self._clear_credentials()
-        QMessageBox.information(self, "Credentials", f"{count} saved credential(s) removed from the keyring.")
+        QMessageBox.information(self, "Credentials", f"{count} saved credential(s) removed.")
 
     def _accept(self) -> None:
         s = self.result_settings

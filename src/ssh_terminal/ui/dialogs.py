@@ -108,7 +108,7 @@ def confirm(parent: QWidget | None, title: str, text: str, ok_text: str = "OK", 
 class SecretDialog(QDialog):
     """Password / passphrase prompt with optional 'remember in keyring'."""
 
-    def __init__(self, title: str, prompt: str, can_remember: bool, parent: QWidget | None = None, remember_label: str = "Save in system keyring") -> None:
+    def __init__(self, title: str, prompt: str, can_remember: bool, parent: QWidget | None = None, remember_label: str = "Save password (don't ask again)") -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(400)
@@ -126,9 +126,11 @@ class SecretDialog(QDialog):
         layout.addWidget(self.edit)
         self.remember = QCheckBox(remember_label)
         self.remember.setVisible(can_remember)
+        self.remember.setToolTip("Stored encrypted in the system keyring (or an encrypted local vault). "
+                                 "Remove it in Settings → Security → Clear saved credentials.")
         layout.addWidget(self.remember)
         if not can_remember:
-            note = QLabel("System keyring unavailable — the secret is kept in memory for this session only.")
+            note = QLabel("Saving secrets is disabled in Settings — kept in memory for this session only.")
             note.setWordWrap(True)
             note.setProperty("muted", True)
             layout.addWidget(note)

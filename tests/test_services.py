@@ -128,6 +128,33 @@ def test_credential_store_with_fake_keyring(tmp_path: Path) -> None:
     assert fake.data == {}
 
 
+def test_credential_store_encrypted_vault_fallback(tmp_path: Path) -> None:
+    """Without a system keyring (WSL, servers) secrets go to an encrypted local file."""
+    store = KeyringCredentialStore(tmp_path / "index.json")
+    store._available = False
+    assert store.available and not store.system_keyring
+    store.set_password("lucas", "10.0.0.10", 22, "s3cret")
+    raw = (tmp_path / "credentials.vault").read_bytes()
+    assert b"s3cret" not in raw and b"lucas" not in raw
+    again = KeyringCredentialStore(tmp_path / "index.json")
+    again._available = False
+    assert again.get_password("lucas", "10.0.0.10", 22) == "s3cret"
+    assert "Encrypted" in again.backend_name()
+    assert again.clear_all() == 1
+    assert again.get_password("lucas", "10.0.0.10", 22) is None
+
+
+def test_credential_store_falls_back_when_keyring_write_fails(tmp_path: Path) -> None:
+    class LockedKeyring(MemoryKeyring):
+        def set_password(self, service, name, secret):
+            raise RuntimeError("locked")
+
+    store = KeyringCredentialStore(tmp_path / "index.json")
+    store._available, store._keyring = True, LockedKeyring()
+    store.set_password("u", "h", 22, "pw")
+    assert store.get_password("u", "h", 22) == "pw"
+
+
 def test_cli_list(ssh_config: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert list_hosts(None) == 0
     out = capsys.readouterr().out.split()

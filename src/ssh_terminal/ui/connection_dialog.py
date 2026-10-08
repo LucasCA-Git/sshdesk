@@ -222,10 +222,11 @@ class ConnectionDialog(QDialog):
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("leave empty to be asked when connecting")
         pw_layout.addWidget(self.password_edit)
-        self.save_password_check = QCheckBox("Save password in the system keyring")
+        self.save_password_check = QCheckBox("Save password (don't ask when connecting)")
         self.save_password_check.setEnabled(keyring_available)
-        if not keyring_available:
-            self.save_password_check.setToolTip("No system keyring available")
+        self.save_password_check.setToolTip(
+            "Stored encrypted (system keyring or encrypted local vault), never in the SSH config"
+            if keyring_available else "Saving secrets is disabled in Settings")
         pw_layout.addWidget(self.save_password_check)
         form.addRow("Password", self.password_widget)
 
