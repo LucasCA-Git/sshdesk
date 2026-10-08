@@ -28,6 +28,32 @@ def process(app, ms: int = 50) -> None:
     loop.exec()
 
 
+class OfflineBackend:
+    """Stays in 'connecting' and never touches the network."""
+
+    kind = "ssh"
+    user_closed = False
+    encoding = "UTF-8"
+
+    def __init__(self, title: str) -> None:
+        self.description = f"offline:{title}"
+
+    def set_callbacks(self, on_data, on_state, on_closed) -> None:
+        self.on_state = on_state
+
+    def start(self, cols: int, rows: int) -> None:
+        self.on_state(SessionState.CONNECTING, "offline test backend")
+
+    def write(self, data: bytes) -> None:
+        pass
+
+    def resize(self, cols: int, rows: int) -> None:
+        pass
+
+    def close(self) -> None:
+        self.user_closed = True
+
+
 @pytest.fixture
 def window(qapp, ssh_config: Path):
     from ssh_terminal.services.app_context import AppContext
@@ -37,6 +63,9 @@ def window(qapp, ssh_config: Path):
     ctx.settings.first_run = False
     ctx.resolver.prefer_openssh = False
     w = MainWindow(ctx)
+    # No real network in GUI tests: SSH panes get an idle offline backend
+    # (real SSH is covered by tests/integration against a live sshd).
+    w.connections._ssh_backend = lambda spec: OfflineBackend(spec.title)
     w.show()
     yield w
     for pane in w.tabs.all_panes():
@@ -346,3 +375,50 @@ def test_split_menu_offers_files(window, qapp) -> None:
     assert any(isinstance(i, FilePane) for i in page.items())
     for i in page.items():
         i.close_session()
+
+
+def test_worker_callbacks_after_session_destroyed_do_not_crash(qapp) -> None:
+    """A backend thread keeps reporting while its tab is closed (crashed on Windows CI)."""
+    import threading
+
+    from ssh_terminal.terminal.backends.base import CloseInfo
+    from ssh_terminal.terminal.terminal_session import TerminalSession, _sessions
+
+    class ChattyBackend:
+        kind = "fake"
+        user_closed = False
+
+        def set_callbacks(self, on_data, on_state, on_closed):
+            self.cb = (on_data, on_state, on_closed)
+
+        def start(self, cols, rows):
+            self.stop = threading.Event()
+
+            def run():
+                while not self.stop.wait(0.001):
+                    self.cb[0](b"x")
+                    self.cb[1](SessionState.CONNECTING, "still trying")
+                self.cb[2](CloseInfo("bye"))
+
+            self.thread = threading.Thread(target=run, daemon=True)
+            self.thread.start()
+
+        def close(self):
+            pass
+
+    backends = []
+    for _ in range(20):
+        backend = ChattyBackend()
+        backends.append(backend)
+        session = TerminalSession(ConnectionSpec.local(""), lambda b=backend: b)
+        session.start(80, 24)
+        process(qapp, 5)
+        key = session._key
+        session.deleteLater()
+        process(qapp, 5)
+        assert key not in _sessions
+    process(qapp, 50)
+    for backend in backends:
+        backend.stop.set()
+        backend.thread.join(2)
+    process(qapp, 50)  # queued events for dead sessions are dropped silently

@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 from collections.abc import Callable
 
+import shiboken6
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from ssh_terminal.errors import BackendError, FriendlyError
@@ -18,6 +20,44 @@ from ssh_terminal.terminal.backends.base import CloseInfo, TerminalBackend
 log = logging.getLogger(__name__)
 
 BackendFactory = Callable[[], TerminalBackend]
+
+
+class _Relay(QObject):
+    """Process-wide, never-deleted target for worker-thread callbacks.
+
+    Worker threads must never emit signals on an object that the GUI thread
+    may be destroying at the same moment (a closed tab): on Windows that race
+    is an access violation inside Qt. Workers emit on this immortal relay
+    instead; the GUI thread then looks the session up by key and drops the
+    event if the session is gone.
+    """
+
+    data = Signal(int, int, bytes)  # session key, generation, data
+    state = Signal(int, int, object, str)
+    closed = Signal(int, int, object)
+
+
+_relay: _Relay | None = None
+_sessions: dict[int, TerminalSession] = {}
+_keys = itertools.count(1)
+
+
+def _session(key: int) -> TerminalSession | None:
+    session = _sessions.get(key)
+    if session is not None and not shiboken6.isValid(session):
+        _sessions.pop(key, None)
+        return None
+    return session
+
+
+def _get_relay() -> _Relay:
+    global _relay
+    if _relay is None:  # created on the GUI thread (first TerminalSession)
+        _relay = _Relay()
+        _relay.data.connect(lambda k, g, d: (s := _session(k)) and s._on_data(g, d))
+        _relay.state.connect(lambda k, g, st, m: (s := _session(k)) and s._on_state(g, st, m))
+        _relay.closed.connect(lambda k, g, i: (s := _session(k)) and s._on_closed(g, i))
+    return _relay
 
 
 class TerminalSession(QObject):
@@ -48,15 +88,11 @@ class TerminalSession(QObject):
         self._retry_timer = QTimer(self)
         self._retry_timer.setSingleShot(True)
         self._retry_timer.timeout.connect(self._start_backend)
-        # Cross-thread delivery: these private signals are emitted from worker
-        # threads and are queued to this object's (GUI) thread.
-        self._data_sig.connect(self._on_data)
-        self._state_sig.connect(self._on_state)
-        self._closed_sig.connect(self._on_closed)
-
-    _data_sig = Signal(int, bytes)
-    _state_sig = Signal(int, object, str)
-    _closed_sig = Signal(int, object)
+        # Cross-thread delivery goes through the immortal relay (see _Relay).
+        self._relay = _get_relay()
+        self._key = next(_keys)
+        _sessions[self._key] = self
+        self.destroyed.connect(lambda _obj=None, key=self._key: _sessions.pop(key, None))
 
     # ------------------------------------------------------------------ #
     @property
@@ -92,15 +128,12 @@ class TerminalSession(QObject):
 
             self._fail(describe_exception(exc))
             return
-        def safe(signal):  # noqa: ANN001, ANN202 - the tab may be closed while the worker still reports
-            def emit(*args) -> None:  # noqa: ANN002
-                try:
-                    signal.emit(gen, *args)
-                except RuntimeError:  # "Signal source has been deleted"
-                    pass
-            return emit
-
-        backend.set_callbacks(safe(self._data_sig), safe(self._state_sig), safe(self._closed_sig))
+        relay, key = self._relay, self._key
+        backend.set_callbacks(
+            lambda data: relay.data.emit(key, gen, data),
+            lambda state, msg: relay.state.emit(key, gen, state, msg),
+            lambda info: relay.closed.emit(key, gen, info),
+        )
         self.backend = backend
         try:
             backend.start(*self._size)
