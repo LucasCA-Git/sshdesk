@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SSHDesk
+Comment=SSH connection manager and terminal
+Exec=SSHDesk %U
+Icon=sshdesk
+Terminal=false
+Categories=Network;System;TerminalEmulator;
+Keywords=ssh;terminal;remote;
