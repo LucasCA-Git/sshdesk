@@ -20,11 +20,14 @@ Guia completo: como rodar, o que acontece por dentro em cada ação e onde mexer
 10. [Autenticação, senhas e host keys](#10-autenticação-senhas-e-host-keys)
 11. [ProxyJump, ProxyCommand e port forwarding](#11-proxyjump-proxycommand-e-port-forwarding)
 12. [Abas, splits e reconexão](#12-abas-splits-e-reconexão)
+12b. [Broadcast input (digitar em vários terminais)](#12b-broadcast-input-digitar-em-vários-terminais)
+12c. [Arquivos (SFTP) e arrastar e soltar](#12c-arquivos-sftp-e-arrastar-e-soltar)
 13. [Onde ficam os arquivos](#13-onde-ficam-os-arquivos)
 13b. [Compartilhamento em equipe](#13b-compartilhamento-em-equipe)
 14. [Mapa do código: quero mudar X, onde mexo?](#14-mapa-do-código-quero-mudar-x-onde-mexo)
 15. [Como estender (novo tipo de conexão)](#15-como-estender-novo-tipo-de-conexão)
 16. [Testes e build](#16-testes-e-build)
+16b. [Versões e a janela What's New](#16b-versões-e-a-janela-whats-new)
 17. [Problemas comuns](#17-problemas-comuns)
 
 ---
@@ -128,6 +131,7 @@ Regras que guiam o projeto:
 - **O SSH config é a fonte da verdade.** O app não guarda cópia própria de host, usuário, porta ou chave. Ele sempre relê o arquivo.
 - **`app_config.json` guarda só metadados de UI:** tema, fonte, favoritos, recentes, grupos, atalhos e abas abertas.
 - **A rede nunca roda na thread da interface.** Conexão, leitura, escrita e testes acontecem em threads próprias e voltam para a UI por **sinais Qt**.
+- **Threads nunca emitem sinais direto num objeto que pode morrer.** Os backends falam com um `_Relay` global (em `terminal_session.py`) que nunca é destruído; a thread da UI entrega o evento para a sessão certa ou descarta se a aba já fechou. Isso evita o crash (access violation) que acontecia no Windows ao fechar uma aba ainda conectando.
 - **O terminal visual não sabe de onde vêm os bytes.** Tanto faz SSH, PTY ou ConPTY: tudo é um `TerminalBackend`.
 
 ---
@@ -282,6 +286,8 @@ tecla
            Alt+x→"\x1bx"  F5→"\x1b[15~"  AltGr+2 (ABNT2)→"@"
  └─ sinal input_ready(bytes) → TerminalSession.write → SSHBackend.write
       └─ coloca na fila → thread "ssh-writer" → chan.sendall()
+ └─ sinal user_input(bytes)  (só teclado, colar e IME — nunca respostas automáticas do emulador)
+      └─ se o Broadcast da aba estiver ligado → mesmos bytes para os outros terminais conectados da aba
 ```
 
 - **Por que uma fila e uma thread para escrever?** `sendall` bloqueia quando o servidor não está lendo (colar um texto enorme, por exemplo). Se isso rodasse na thread da UI, a janela congelaria.
@@ -432,11 +438,13 @@ Um lock garante uma pergunta por vez, mesmo com várias abas conectando ao mesmo
 
 ### Onde as senhas ficam
 
-- **Nunca** em arquivo, nunca no log.
-- Só no cofre do sistema, e só se você marcar “Save in system keyring”:
+- **Nunca** em texto puro, nunca no log, nunca no `app_config.json` ou no SSH config.
+- Só se você marcar **“Save password (don't ask again)”** no prompt (ou no formulário da conexão):
   - Windows: Credential Manager, entradas “SSHDesk”;
-  - Linux: Secret Service (GNOME Keyring ou KWallet).
-- `credentials_index.json` guarda **só os nomes** das entradas, sem segredo, para permitir “Clear saved credentials” em *Settings › Security*.
+  - Linux com Secret Service: GNOME Keyring ou KWallet;
+  - **Sem cofre do sistema** (WSL, servidor, Linux mínimo): cofre local criptografado `credentials.vault` (Fernet = AES-128-CBC + HMAC) com a chave aleatória em `vault.key`, os dois com permissão `600`. Se o keyring do sistema existir mas estiver travado na hora de salvar, o app cai para o cofre local também.
+- `credentials_index.json` guarda **só os nomes** das entradas, sem segredo, para permitir “Clear saved credentials” em *Settings › Security*. A tela mostra onde está guardando (*Stored in*).
+- Se a senha salva deixar de funcionar (trocaram no servidor), ela é apagada e o app pergunta de novo.
 
 ---
 
@@ -475,8 +483,15 @@ O comando (`%h`, `%p`, `%r` e `%n` são substituídos) é executado como process
 
 ## 12. Abas, splits e reconexão
 
-- **Aba** = `TabPage`, uma árvore de `QSplitter` com um ou mais `TerminalPane`.
-- **Split** (`Ctrl+Shift+\`, `Ctrl+Shift+-`): abre **outra sessão da mesma conexão** ao lado ou abaixo. Splits podem ser aninhados.
+- **Aba** = `TabPage`, uma árvore de `QSplitter` com painéis (`PaneBase`): `TerminalPane` (terminal) ou `FilePane` (arquivos). Os dois tipos convivem na mesma aba.
+- **Split** (`Ctrl+Shift+\`, `Ctrl+Shift+-` ou os botões no cabeçalho do painel): abre um menu para escolher **o que** vai ao lado ou abaixo:
+  - *Same Connection* (outra sessão do mesmo host);
+  - *Files (SFTP)* › este computador ou qualquer host;
+  - um shell local (bash, PowerShell, WSL…);
+  - **qualquer outro host SSH** (favoritos primeiro).
+  Pela sidebar: botão direito no host › *Open to the Right* / *Open Below*. Splits podem ser aninhados.
+- **Grade** (`Ctrl+Shift+G`): reorganiza todos os painéis da aba em grade (2 → lado a lado, 4 → 2×2…). Selecionar vários hosts na sidebar › *Open N in Split View* abre todos já em grade.
+- **Sidebar:** a borda entre a lista de hosts e os terminais tem uma alça (`GripSplitter`). Arraste para mudar a largura; arraste até a borda para recolher. Recolhida, a alça continua visível para puxar de volta (ou dê dois cliques nela, ou `Ctrl+Shift+B`).
 - **Fechar** (`Ctrl+W`): fecha o painel ativo; se for o último, fecha a aba. A conexão é encerrada de forma limpa.
 - **Reabrir** (`Ctrl+Shift+T`): reabre a última aba fechada, guardada numa pilha com as 20 últimas.
 - **Ícone da aba:** 🟢 conectado, 🟡 conectando, 🔴 caiu ou falhou.
@@ -493,6 +508,48 @@ O comando (`%h`, `%p`, `%r` e `%n` são substituídos) é executado como process
 
 ---
 
+## 12b. Broadcast input (digitar em vários terminais)
+
+- Liga/desliga por aba: `Ctrl+Shift+I`, ícone 📡 no cabeçalho do terminal, botão no canto da barra de abas, *Terminal › Broadcast Input* ou menu da aba.
+- Ligado: borda amarela nos terminais, selo **BROADCAST** no cabeçalho e `⦿` no título da aba.
+- Como funciona: o `TerminalWidget` emite `user_input` só para o que **você** digitou/colou. A `TerminalTabs` repassa esses bytes para `session.write` de todos os **outros** terminais conectados da mesma aba. Respostas automáticas do emulador (posição do cursor, relatórios de mouse) não são repassadas — senão um terminal "responderia" pelo outro.
+- Painéis de arquivos são ignorados; abas diferentes não se misturam.
+
+---
+
+## 12c. Arquivos (SFTP) e arrastar e soltar
+
+Arquivos: `services/file_systems.py` (lógica) e `ui/file_pane.py` (tela).
+
+```
+FilePane (painel na árvore de splits)
+ ├─ cabeçalho: seletor de host (This computer | hosts do config) + split/fechar
+ ├─ barra: subir, home, atualizar, caminho editável, nova pasta, enviar arquivos
+ ├─ lista (FileList): nome, tamanho, data, permissões — pastas primeiro
+ └─ barra de transferência: progresso, cancelar
+
+FileSystem (mesma API para os dois lados)
+ ├─ LocalFS   → os.scandir / shutil (no Windows, acima de C:\ vem a lista de unidades)
+ └─ RemoteFS  → paramiko.SFTPClient sobre a mesma autenticação/ProxyJump dos terminais
+```
+
+- **Abrir:** `+` › *Files (SFTP)* (aba "este computador | escolha um host"), botão direito no host › *Files (SFTP)* › nova aba / à direita / abaixo, ou o submenu *Files (SFTP)* do split. Um terminal SSH também tem *Open Files (SFTP) to the Right*.
+- **Threads:** cada painel tem um `SerialWorker` (uma thread) para listar/renomear/apagar; cada transferência abre **o próprio canal SFTP** (`RemoteFS.clone()`) na mesma conexão SSH — sem novo login e sem disputar o cliente SFTP entre threads.
+- **Arrastar e soltar:**
+
+  | De → Para | Resultado |
+  |---|---|
+  | Explorer / gerenciador de arquivos → painel | upload (ou cópia, se o painel for local) para a pasta onde soltou |
+  | painel A → painel B | upload, download ou **host → host** (passa por um arquivo temporário local) |
+  | dentro do mesmo painel, em cima de uma pasta | mover |
+  | painel local → Explorer | o sistema recebe os caminhos (cópia normal) |
+
+- **Transferências:** pastas inteiras (recursivo), progresso em bytes, cancelar, e pergunta *Replace / Skip / Cancel* quando o nome já existe na pasta. Ficam numa fila por painel.
+- **Atalhos na lista:** Enter abre, Backspace sobe, F2 renomeia, Del apaga (com confirmação), F5 atualiza. Botão direito: copiar para o outro painel, *Download to…*, *Send Files Here…*, nova pasta, copiar caminho, mostrar ocultos.
+- **Limitação:** arrastar do painel **remoto** direto para o Explorer ainda não é suportado (use o painel local ou *Download to…*). No WSL, o WSLg normalmente não aceita arrastar do Explorer do Windows — rode o app no Windows para isso.
+
+---
+
 ## 13. Onde ficam os arquivos
 
 | O quê | Linux / WSL | Windows |
@@ -503,7 +560,9 @@ O comando (`%h`, `%p`, `%r` e `%n` são substituídos) é executado como process
 | Settings do app | `~/.config/sshdesk/app_config.json` | `%APPDATA%\SSHDesk\app_config.json` |
 | Backups com data | `~/.config/sshdesk/backups/` | `%APPDATA%\SSHDesk\backups\` |
 | Log | `~/.config/sshdesk/logs/app.log` | `%APPDATA%\SSHDesk\logs\app.log` |
-| Senhas | Secret Service | Credential Manager |
+| Senhas (com cofre do sistema) | Secret Service | Credential Manager |
+| Senhas (sem cofre do sistema) | `~/.config/sshdesk/credentials.vault` + `vault.key` | `%APPDATA%\SSHDesk\credentials.vault` + `vault.key` |
+| Hosts do time | `~/.config/sshdesk/teams/*.conf` | `%APPDATA%\SSHDesk\teams\*.conf` |
 
 A variável `SSHDESK_HOME` muda a pasta do app (os testes usam isso para nunca tocar nos seus arquivos).
 
@@ -519,7 +578,8 @@ Exemplo de `app_config.json`:
     "favorites": ["server-prod"],
     "recent_connections": ["server-hml"],
     "groups": {"Production": ["server-prod", "api-prod"]},
-    "keybindings": {"close_tab": "Ctrl+W"}
+    "keybindings": {"close_tab": "Ctrl+W"},
+    "last_seen_version": "1.1.0"
 }
 ```
 
@@ -547,7 +607,7 @@ Consequências:
 
 - O `~/.ssh/config` continua sendo a fonte da verdade, porque os hosts do time entram por `Include`. Por isso eles funcionam também no `ssh`, `scp` e `git` do terminal, não só no app.
 - O `Include` fica **antes** do primeiro `Host`. Se ficasse no fim, pertenceria ao último bloco.
-- Na sidebar, cada time vira uma seção **TEAM · NOME**, com o mesmo duplo clique, abas e splits dos hosts pessoais.
+- Na sidebar, cada time vira uma seção **TEAM · NOME**, e cada grupo do time vira **TEAM · NOME › GRUPO** — com o mesmo duplo clique, abas, splits e SFTP dos hosts pessoais. O grupo de cada host vem do servidor e fica guardado em `teams/teams.json` (`host_groups`).
 - Os arquivos do time são **reescritos a cada sync**. Não edite à mão: use **Edit in Team** (admins).
 - **Sign Out** apaga os arquivos do time. A linha `Include` pode ficar: sem arquivos, ela não faz nada.
 
@@ -557,7 +617,8 @@ Consequências:
 |---|---|
 | *Account › Create Account / Sign In* | conta no servidor (URL configurável no próprio diálogo) |
 | *Account › Teams…* | criar time, aceitar convite, convidar por email, papéis, membros, sair/excluir |
-| Botão direito num host pessoal › *Share with Team* | publica o host (sem segredos) num time em que você é admin |
+| Botão direito num host pessoal › *Share with Team* | publica o host (sem segredos) num time em que você é admin; o campo **Group** já vem com o grupo do host e lista os seus grupos e os do time. Compartilhar de novo um host que já está no time **atualiza** (bom para mover para um grupo) |
+| Botão direito no **título de um grupo** › *Share Group with Team* | publica todos os hosts do grupo de uma vez, com o nome do grupo; os que já existem no time são atualizados |
 | Botão direito num host do time | *Edit in Team* / *Remove from Team* (admin) ou *Managed by team* (membro); *Duplicate as Personal Host* para ter uma cópia sua |
 | *Account › Sync Team Hosts* | força o sync (também roda ao abrir e a cada 5 min) |
 
@@ -588,6 +649,12 @@ Consequências:
 | mudar menus, status bar ou ações | `ui/main_window.py` (`_build_actions`, `_build_menus`) |
 | mudar mensagens de erro | `errors.py` → `describe_exception` |
 | mudar a tela de Settings | `ui/settings_dialog.py` + campo em `models/app_settings.py` |
+| mudar o navegador de arquivos (SFTP) | `ui/file_pane.py` (tela, arrastar e soltar) + `services/file_systems.py` (LocalFS, RemoteFS, Transfer) |
+| mudar o broadcast ou os splits | `ui/terminal_tabs.py` (`TabPage`, `TerminalTabs._broadcast_input`) + `ui/main_window.py` (`_fill_split_menu`, `split_with`) |
+| mudar o painel de temas | `ui/appearance_panel.py` + `terminal/color_schemes.py` |
+| mudar onde senhas são guardadas | `services/credential_service.py` (`KeyringCredentialStore`, `EncryptedFileVault`) |
+| escrever as notas de uma versão | `src/ssh_terminal/resources/CHANGELOG.md` (em inglês) |
+| regenerar as imagens do README | `scripts/make_screenshots.py` |
 
 ---
 
@@ -620,7 +687,7 @@ Depois:
 
 Um backend do zero (serial, telnet, `kubectl exec`) implementa só quatro métodos de `TerminalBackend`: `start`, `write`, `resize` e `close`. Ele avisa a UI chamando `emit_data`, `emit_state` e `emit_closed`. Pode chamá-los de qualquer thread, porque a `TerminalSession` cuida de levar tudo para a UI.
 
-Para SFTP, `ssh/sftp_session.py` já oferece `SFTPSession(conexão)` com `listdir`, `upload`, `download`, `mkdir`, `remove` e `rename`, reaproveitando a conexão já autenticada da aba (`backend.connection`).
+Para arquivos, o caminho é parecido: implemente a API de `FileSystem` (`services/file_systems.py`: `home`, `listdir`, `stat`, `mkdir`, `rename`, `remove_file`, `rmdir`, `join`, `parent`) e o `FilePane` e as transferências funcionam sem mudança — por exemplo, um `S3FS` ou um `DockerCpFS`.
 
 ---
 
@@ -629,7 +696,7 @@ Para SFTP, `ssh/sftp_session.py` já oferece `SFTPSession(conexão)` com `listdi
 ```bash
 pip install -r requirements-dev.txt
 ruff check src tests        # lint
-python -m pytest            # 126 testes, sem servidor SSH
+python -m pytest            # ~160 testes (unitários + interface offscreen), sem servidor SSH
 ```
 
 - Os testes usam um `HOME` temporário: seu `~/.ssh/config` real **nunca** é alterado.
@@ -641,6 +708,10 @@ python -m pytest            # 126 testes, sem servidor SSH
   SSHDESK_LIVE_SSHD=/tmp/sshdesk-sshd python -m pytest tests/integration
   ```
 
+  São 13 testes: chave, passphrase, senha, ProxyJump, ProxyCommand, host key, `-L/-R/-D`, SFTP, upload de pasta + cópia host→host + download, shell e Test Connection.
+- Os testes de interface usam um backend SSH "offline" (nada de rede), para serem estáveis no CI do Windows.
+- **Imagens do README:** `QT_QPA_PLATFORM=offscreen python scripts/make_screenshots.py` regenera `docs/images/*.png` com dados fictícios.
+
 ### Gerar executável (o PyInstaller não faz cross-compile)
 
 ```bash
@@ -649,7 +720,19 @@ pyinstaller --noconfirm --clean sshdesk.spec
 
 - No Windows gera `dist\SSHDesk.exe`. Há um script pronto: `scripts\build_windows.ps1`.
 - No Linux gera `dist/SSHDesk`. Há um script pronto: `scripts/build_linux.sh`.
-- O GitHub Actions (`.github/workflows/build.yml`) gera os dois a cada push.
+- O GitHub Actions (`.github/workflows/build.yml`) roda lint + testes e gera os dois a cada push.
+
+---
+
+## 16b. Versões e a janela What's New
+
+- A versão fica em `src/ssh_terminal/__init__.py` (`__version__`, semver) e em `pyproject.toml`.
+- As notas ficam em `src/ssh_terminal/resources/CHANGELOG.md` (em inglês, embutidas no executável) e são copiadas para o `CHANGELOG.md` da raiz. Testes garantem que a versão atual tem entrada e que as duas cópias são iguais.
+- Na **primeira** abertura de cada versão, `MainWindow._after_show` compara `last_seen_version` (do `app_config.json`) com `__version__`. Se mudou, mostra a janela **What's New** (sem bloquear a interface):
+  - "Thanks for installing" (instalação nova) ou "Thanks for updating to X" (atualização);
+  - só o que mudou **desde a versão que a pessoa tinha** (`services/changelog.py` → `releases_since`);
+  - convite para o GitHub e botões *View on GitHub* / *Release Notes on GitHub*.
+- Depois disso não aparece mais; *Help › What's New* reabre com todas as versões.
 
 ---
 
@@ -665,7 +748,9 @@ pyinstaller --noconfirm --clean sshdesk.spec
 | No WSL os hosts não aparecem | O WSL lê o config do Linux (`~/.ssh/config`). Copie o do Windows (`cp /mnt/c/Users/<você>/.ssh/config ~/.ssh/`) ou rode o app no Windows nativo. |
 | “Host key … has CHANGED” | O servidor foi reinstalado ou o IP mudou. Confira e rode o `ssh-keygen -R` mostrado nos detalhes. |
 | “Authentication failed” | Clique em **Details**: mostra os métodos tentados e os que o servidor aceita. Confira o `User`, o `authorized_keys` e o agente (*Help › Diagnostics*). |
-| Passphrase pedida toda vez | Marque “Save in system keyring” ou carregue a chave no agente (`ssh-add`). |
+| Senha/passphrase pedida toda vez | Marque “Save password (don't ask again)” no prompt ou carregue a chave no agente (`ssh-add`). Veja onde foi salva em *Settings › Security › Stored in*. |
+| Arrastar do Explorer não funciona (WSL) | Limitação do WSLg. Rode o app no Windows, ou use o painel "This computer" (seus arquivos estão em `/mnt/c/Users/...`). |
+| CI do Windows quebra só lá | Rode `python -m pytest -x` no Windows; os testes de interface não devem abrir conexões reais (use o backend offline do `tests/test_gui.py`). |
 | Ctrl+W fecha a aba em vez de apagar a palavra | Troque em *Settings › Keyboard* para `Ctrl+Shift+W`. |
 | Terminal local não abre no Windows | `pip install pywinpty` (requer Windows 10 1809+). |
 | Quero ver o que aconteceu | Rode com `--debug` e abra *Help › Open Log Folder*. |
