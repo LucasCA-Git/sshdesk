@@ -1,0 +1,7 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy>=2.0
+pydantic[email]>=2.6
+argon2-cffi>=23.1
+pyjwt>=2.8
+psycopg[binary]>=3.1   # only used with a PostgreSQL DATABASE_URL
