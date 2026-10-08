@@ -158,6 +158,9 @@ class ConnectionPanel(QWidget):
     share_requested = Signal(str, int)  # alias, team id
     team_edit_requested = Signal(str)
     team_delete_requested = Signal(str)
+    split_view_requested = Signal(list)  # aliases
+    open_split_requested = Signal(str, str)  # alias, "right" | "down" (next to the current terminal)
+    files_requested = Signal(str, str)  # alias, "tab" | "right" | "down"  (SFTP file browser)
     git_test_requested = Signal(str)
     copy_git_remote_requested = Signal(str)
     new_requested = Signal()
@@ -211,6 +214,7 @@ class ConnectionPanel(QWidget):
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(False)
         self.tree.setExpandsOnDoubleClick(False)
+        self.tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)  # Ctrl/Shift+click
         self.tree.setMouseTracking(True)
         self.tree.setItemDelegate(HostDelegate(self))
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -448,6 +452,16 @@ class ConnectionPanel(QWidget):
             menu.exec(self.tree.viewport().mapToGlobal(pos))
             return
         alias = item.data(0, ROLE_ALIAS)
+        selected = []
+        for it in self.tree.selectedItems():
+            a = it.data(0, ROLE_ALIAS)
+            if it.data(0, ROLE_KIND) == KIND_HOST and a not in selected:
+                selected.append(a)
+        if len(selected) > 1 and item.isSelected():
+            grid = menu.addAction(icon("grid"), f"Open {len(selected)} in Split View",
+                                  lambda: self.split_view_requested.emit(selected))
+            menu.setDefaultAction(grid)
+            menu.addSeparator()
         if item.data(0, ROLE_KIND) == KIND_WILDCARD:
             menu.addAction("Edit SSH Defaults", lambda: self.edit_defaults_requested.emit(alias))
             menu.addAction(icon("file"), "Open Config", lambda: self.open_config_requested.emit(alias))
@@ -466,6 +480,12 @@ class ConnectionPanel(QWidget):
             connect = menu.addAction(icon("terminal"), "Connect", lambda: self.connect_requested.emit(alias, False))
             menu.setDefaultAction(connect)
             menu.addAction("Open in New Tab", lambda: self.connect_requested.emit(alias, True))
+            menu.addAction(icon("split-right"), "Open to the Right (split)", lambda: self.open_split_requested.emit(alias, "right"))
+            menu.addAction(icon("split-down"), "Open Below (split)", lambda: self.open_split_requested.emit(alias, "down"))
+            files = menu.addMenu(icon("folder"), "Files (SFTP)")
+            files.addAction("Open in New Tab (this computer | host)", lambda: self.files_requested.emit(alias, "tab"))
+            files.addAction(icon("split-right"), "Open to the Right", lambda: self.files_requested.emit(alias, "right"))
+            files.addAction(icon("split-down"), "Open Below", lambda: self.files_requested.emit(alias, "down"))
             menu.addAction("Test Connection", lambda: self.test_requested.emit(alias))
             menu.addAction(icon("git"), "Treat as Git / Service (no shell)", lambda: self.role_set.emit(alias, HostRole.GIT.value))
         menu.addSeparator()

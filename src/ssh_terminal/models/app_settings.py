@@ -29,7 +29,10 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "new_connection": "Ctrl+Shift+N",
     "reload_config": "F5",
     "fullscreen": "F11",
+    "toggle_appearance": "Ctrl+Shift+A",
+    "arrange_grid": "Ctrl+Shift+G",
     "toggle_sidebar": "Ctrl+Shift+B",
+    "broadcast": "Ctrl+Shift+I",
 }
 
 KEYBINDING_LABELS: dict[str, str] = {
@@ -51,6 +54,9 @@ KEYBINDING_LABELS: dict[str, str] = {
     "reload_config": "Reload SSH config",
     "fullscreen": "Fullscreen",
     "toggle_sidebar": "Toggle sidebar",
+    "toggle_appearance": "Themes panel",
+    "arrange_grid": "Arrange terminals as grid",
+    "broadcast": "Broadcast input to all terminals of the tab",
 }
 
 
@@ -76,7 +82,7 @@ class AppSettings:
     default_local_shell: str = ""  # ShellProfile.name; empty = platform default
     # Appearance
     theme: str = "dark"  # dark | light | system
-    color_scheme: str = "Default Dark"
+    color_scheme: str = "Midnight"
     window_opacity: int = 100  # percent
     # Terminal
     font_family: str = field(default_factory=default_font_family)

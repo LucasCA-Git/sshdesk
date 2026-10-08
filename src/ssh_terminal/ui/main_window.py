@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QFileSystemWatcher, QPoint, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QGuiApplication, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QCursor, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -39,15 +40,17 @@ from ssh_terminal.ssh.host_keys import KnownHostsStore, host_id_for
 from ssh_terminal.terminal.backends.ssh_backend import SSHBackend
 from ssh_terminal.terminal.terminal_session import TerminalSession
 from ssh_terminal.terminal.terminal_widget import TerminalWidget
+from ssh_terminal.ui.appearance_panel import AppearancePanel
 from ssh_terminal.ui.connection_dialog import ConnectionDialog
 from ssh_terminal.ui.connection_panel import ConnectionPanel
 from ssh_terminal.ui.dialogs import confirm, mark_primary, show_error
+from ssh_terminal.ui.file_pane import FilePane
 from ssh_terminal.ui.info_dialogs import DiagnosticsDialog, ExternalChangeChoice, ExternalChangeDialog, WelcomeDialog, about_text
 from ssh_terminal.ui.port_forward_dialog import PortForwardDialog
 from ssh_terminal.ui.prompter import QtAuthPrompter
 from ssh_terminal.ui.settings_dialog import SettingsDialog
 from ssh_terminal.ui.team_dialogs import AccountDialog, ShareHostDialog, TeamsDialog
-from ssh_terminal.ui.terminal_tabs import TerminalPane, TerminalTabs, state_color
+from ssh_terminal.ui.terminal_tabs import PaneBase, TerminalPane, TerminalTabs, state_color
 from ssh_terminal.ui.test_connection_dialog import TestConnectionDialog
 from ssh_terminal.ui.theme import app_icon, apply_theme, current_palette, icon
 from ssh_terminal.ui.workers import run_async
@@ -119,6 +122,9 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.sidebar)
         self.splitter.addWidget(self.stack)
+        self.appearance = AppearancePanel()
+        self.appearance.hide()
+        self.splitter.addWidget(self.appearance)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setCollapsible(1, False)
@@ -204,8 +210,12 @@ class MainWindow(QMainWindow):
         a("toggle_sidebar", "Sidebar", self.toggle_sidebar)
         self._actions["toggle_sidebar"].setCheckable(True)
         a("focus_terminal", "Terminal", self.focus_terminal)
-        a("split_right", "Split Right", lambda: self.split(Qt.Orientation.Horizontal), icon_name="split-right")
-        a("split_down", "Split Down", lambda: self.split(Qt.Orientation.Vertical), icon_name="split-down")
+        a("split_right", "Split Right…", lambda: self.split_choose(Qt.Orientation.Horizontal), icon_name="split-right")
+        a("split_down", "Split Down…", lambda: self.split_choose(Qt.Orientation.Vertical), icon_name="split-down")
+        a("broadcast", "Broadcast Input to All Terminals", self.toggle_broadcast, icon_name="broadcast")
+        self._actions["broadcast"].setCheckable(True)
+        a("arrange_grid", "Arrange as Grid", self.arrange_grid, icon_name="grid")
+        a("toggle_appearance", "Themes Panel", self.toggle_appearance, icon_name="palette")
         a("fullscreen", "Fullscreen", self.toggle_fullscreen)
         a("test_connection", "Test Connection", self.test_current_connection)
         a("reconnect", "Reconnect", lambda: self._with_pane(lambda p: p.reconnect()))
@@ -261,6 +271,10 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(acts["split_right"])
         view_menu.addAction(acts["split_down"])
+        view_menu.addAction(acts["arrange_grid"])
+        view_menu.addAction(acts["broadcast"])
+        view_menu.addSeparator()
+        view_menu.addAction(acts["toggle_appearance"])
         view_menu.addSeparator()
         view_menu.addAction(acts["fullscreen"])
 
@@ -275,7 +289,7 @@ class MainWindow(QMainWindow):
         for key in ("new_tab", "close_tab", "reopen_tab", "next_tab", "prev_tab"):
             term_menu.addAction(acts[key])
         term_menu.addSeparator()
-        for key in ("clear", "reset"):
+        for key in ("clear", "reset", "broadcast"):
             term_menu.addAction(acts[key])
         term_menu.addSeparator()
         for key in ("font_increase", "font_decrease", "font_reset"):
@@ -339,6 +353,45 @@ class MainWindow(QMainWindow):
         t.pane_context_menu.connect(self._pane_menu)
         t.edit_connection_requested.connect(self.edit_connection)
         t.duplicate_requested.connect(lambda p: self.open_spec(ConnectionSpec.from_dict(p.spec.to_dict())))
+        t.pane_action.connect(self._pane_action)
+        sb.split_view_requested.connect(self.open_split_view)
+        sb.open_split_requested.connect(self.split_alias)
+        sb.files_requested.connect(self.files_alias)
+        t.files_requested.connect(lambda: self.open_files(None))
+        t.broadcast_changed.connect(self._broadcast_changed)
+        self.appearance.scheme_chosen.connect(self._scheme_chosen)
+        self.appearance.font_changed.connect(self._font_changed)
+        self.appearance.close_requested.connect(self.toggle_appearance)
+        # Tab bar corner: [ + ] [ broadcast ] [ grid ] [ themes ]
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 6, 0)
+        corner_layout.setSpacing(2)
+        self.grid_button = QToolButton()
+        self.grid_button.setToolTip("Arrange terminals as grid")
+        self.grid_button.clicked.connect(self.arrange_grid)
+        self.broadcast_button = QToolButton()
+        self.broadcast_button.setToolTip("Broadcast input: what you type goes to every terminal of this tab")
+        self.broadcast_button.setCheckable(True)
+        self.broadcast_button.clicked.connect(self.toggle_broadcast)
+        self.theme_button = QToolButton()
+        self.theme_button.setToolTip("Themes panel")
+        self.theme_button.setCheckable(True)
+        self.theme_button.clicked.connect(self.toggle_appearance)
+        for button in (t.plus, self.broadcast_button, self.grid_button, self.theme_button):
+            corner_layout.addWidget(button)
+        t.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+        # Left corner: show/hide the hosts sidebar
+        left = QWidget()
+        left_layout = QHBoxLayout(left)
+        left_layout.setContentsMargins(6, 0, 2, 0)
+        self.sidebar_button = QToolButton()
+        self.sidebar_button.setObjectName("SidebarToggle")
+        self.sidebar_button.setToolTip("Show/hide hosts (Ctrl+Shift+B)")
+        self.sidebar_button.setCheckable(True)
+        self.sidebar_button.clicked.connect(self.toggle_sidebar)
+        left_layout.addWidget(self.sidebar_button)
+        t.setCornerWidget(left, Qt.Corner.TopLeftCorner)
         t.session_closed.connect(lambda _p, _i: self._states_timer.start())
         self.splitter.splitterMoved.connect(lambda *_: self._remember_sidebar_width())
 
@@ -363,6 +416,12 @@ class MainWindow(QMainWindow):
         self.sidebar.setVisible(s.sidebar_visible)
         self.sidebar.refresh_icons()
         self.tabs.refresh_icons()
+        if hasattr(self, "grid_button"):
+            self.grid_button.setIcon(icon("grid", current_palette().muted))
+            self.theme_button.setIcon(icon("palette", current_palette().muted))
+            page = self.tabs.current_page()
+            self._broadcast_changed(bool(page and page.broadcast))
+            self._sync_sidebar_button()
         self.empty.logo.setPixmap(app_icon().pixmap(96, 96))
         for pane in self.tabs.all_panes():
             pane.apply_settings(s)
@@ -771,12 +830,14 @@ class MainWindow(QMainWindow):
             spec.shell = self.connections.shell_profile().name
         pane = TerminalPane(spec, session, self.settings)
         pane.state_changed.connect(self._pane_state_changed)
+        if spec.theme:
+            pane.set_theme(spec.theme)
         pane.terminal.size_changed.connect(lambda c, r, p=pane: self._size_changed(p, c, r))
         return pane
 
     def open_spec(self, spec: ConnectionSpec, split: Qt.Orientation | None = None) -> TerminalPane:
         pane = self._make_pane(spec)
-        current = self.tabs.current_pane()
+        current = self.tabs.current_item()
         if split is not None and current is not None:
             self.tabs.split_pane(current, pane, split)
         else:
@@ -834,6 +895,9 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.empty)
 
     def _current_pane_changed(self, pane: TerminalPane | None) -> None:
+        if self.appearance.isVisible() and pane is not None:
+            self.appearance.load(pane.terminal.scheme_override or self.settings.color_scheme,
+                                 self.settings.font_family, self.settings.font_size)
         if pane is None and self.tabs.count() == 0:
             self.stack.setCurrentWidget(self.empty)
         self._update_status(pane)
@@ -894,7 +958,15 @@ class MainWindow(QMainWindow):
         self.sidebar.setVisible(visible)
         self.settings.sidebar_visible = visible
         self._actions["toggle_sidebar"].setChecked(visible)
+        self._sync_sidebar_button()
         self.save_settings()
+
+    def _sync_sidebar_button(self) -> None:
+        if hasattr(self, "sidebar_button"):
+            visible = self.settings.sidebar_visible
+            self.sidebar_button.setChecked(visible)
+            pal = current_palette()
+            self.sidebar_button.setIcon(icon("sidebar", pal.accent if visible else pal.muted))
 
     def toggle_fullscreen(self) -> None:
         if self.isFullScreen():
@@ -912,10 +984,20 @@ class MainWindow(QMainWindow):
         menu.addAction("Clear", pane.terminal.clear)
         menu.addAction("Reset", pane.terminal.reset)
         menu.addSeparator()
-        menu.addAction(icon("split-right"), "Split Right", lambda: self._split_from(pane, Qt.Orientation.Horizontal))
-        menu.addAction(icon("split-down"), "Split Down", lambda: self._split_from(pane, Qt.Orientation.Vertical))
+        right = menu.addMenu(icon("split-right"), "Split Right")
+        self._fill_split_menu(right, pane, Qt.Orientation.Horizontal)
+        down = menu.addMenu(icon("split-down"), "Split Down")
+        self._fill_split_menu(down, pane, Qt.Orientation.Vertical)
+        page = self.tabs.current_page()
+        bc = menu.addAction(icon("broadcast"), "Broadcast Input to All Terminals", self.toggle_broadcast)
+        bc.setCheckable(True)
+        bc.setChecked(bool(page and page.broadcast))
         menu.addAction("Close Pane", lambda: self.tabs.close_pane(pane))
         menu.addSeparator()
+        files_spec = ConnectionSpec.from_dict(pane.spec.to_dict())
+        menu.addAction(icon("folder"), "Open Files (SFTP) to the Right" if pane.spec.kind is ConnectionKind.SSH
+                       else "Open Local Files to the Right",
+                       lambda: self.open_files(files_spec, "right", ref=pane))
         menu.addAction("Reconnect", pane.reconnect)
         if pane.spec.kind is ConnectionKind.SSH:
             forward = menu.addAction("Port Forwarding...", lambda: self.open_port_forwarding(pane))
@@ -923,6 +1005,192 @@ class MainWindow(QMainWindow):
             if pane.spec.alias:
                 menu.addAction("Edit Connection...", lambda: self.edit_connection(pane.spec.alias))
         menu.exec(pos)
+
+    def _pane_action(self, pane: PaneBase, action: str) -> None:
+        if action == "split_right":
+            self._split_chooser(pane, Qt.Orientation.Horizontal, QCursor.pos())
+        elif action == "split_down":
+            self._split_chooser(pane, Qt.Orientation.Vertical, QCursor.pos())
+        elif action == "broadcast":
+            self.tabs.toggle_broadcast(self.tabs._page_of(pane))
+            pane.focus_target().setFocus()
+        elif action == "close":
+            self.tabs.close_pane(pane)
+
+    # -- split with another terminal / broadcast --------------------------- #
+    def _shell_hosts(self) -> list:  # noqa: ANN201 - list[SSHHost]
+        hosts = [h for h in self.ctx.config.hosts() if not self.is_git_host(h.alias)]
+        hosts.sort(key=lambda h: (not self.settings.is_favorite(h.alias), h.alias.lower()))
+        return hosts
+
+    def _host_actions(self, menu: QMenu, slot) -> None:  # noqa: ANN001 - slot(alias)
+        target = menu
+        hosts = self._shell_hosts()
+        for i, host in enumerate(hosts):
+            if i == 20:
+                target = menu.addMenu(f"More Hosts ({len(hosts) - 20})")
+            name = "star-filled" if self.settings.is_favorite(host.alias) else "server"
+            label = host.alias if not host.hostname or host.hostname == host.alias else f"{host.alias}   ·   {host.hostname}"
+            target.addAction(icon(name), label, lambda a=host.alias: slot(a))
+
+    def _fill_split_menu(self, menu: QMenu, pane: PaneBase, orientation: Qt.Orientation) -> None:
+        """Choices for the new pane: same connection, a local shell, any SSH host, or files (SFTP)."""
+        is_files = isinstance(pane, FilePane)
+        if pane.spec is not None:
+            spec = ConnectionSpec.from_dict(pane.spec.to_dict())
+            same = menu.addAction(icon("split-right" if orientation is Qt.Orientation.Horizontal else "split-down"),
+                                  f"Same Connection ({pane.title})",
+                                  (lambda: self.split_files_with(pane, spec, orientation)) if is_files
+                                  else (lambda: self.split_with(pane, spec, orientation)))
+            menu.setDefaultAction(same)
+        files = menu.addMenu(icon("folder"), "Files (SFTP)")
+        files.addAction(icon("terminal"), "This Computer",
+                        lambda: self.split_files_with(pane, ConnectionSpec.local(), orientation))
+        files.addSeparator()
+        self._host_actions(files, lambda a: self.split_files_with(pane, ConnectionSpec.ssh(a), orientation))
+        menu.addSection("Local terminal")
+        for shell in self.connections.shells:
+            menu.addAction(icon("terminal"), shell.name,
+                           lambda n=shell.name: self.split_with(pane, ConnectionSpec.local(n), orientation))
+        if self._shell_hosts():
+            menu.addSection("SSH hosts")
+            self._host_actions(menu, lambda a: self.split_with(pane, ConnectionSpec.ssh(a), orientation))
+
+    def _split_chooser(self, pane: PaneBase, orientation: Qt.Orientation, pos: QPoint) -> None:
+        menu = QMenu(self)
+        self._fill_split_menu(menu, pane, orientation)
+        menu.exec(pos)
+
+    def split_choose(self, orientation: Qt.Orientation) -> None:
+        """Keyboard/menu split: pick what opens next to the current terminal."""
+        pane = self.tabs.current_item()
+        if pane is None:
+            self.open_local()
+            return
+        target = pane.focus_target()
+        self._split_chooser(pane, orientation, target.mapToGlobal(target.rect().center()))
+
+    def split_with(self, pane: PaneBase, spec: ConnectionSpec, orientation: Qt.Orientation) -> TerminalPane:
+        page = self.tabs._page_of(pane)
+        if page is not None:
+            self.tabs.setCurrentWidget(page)
+            page.active_pane = pane
+        return self.open_spec(spec, split=orientation)
+
+    # -- files (SFTP) ------------------------------------------------------ #
+    def _file_hosts(self) -> list[str]:
+        return [h.alias for h in self._shell_hosts()]
+
+    def _make_file_pane(self, spec: ConnectionSpec | None) -> FilePane:
+        return FilePane(spec, self.connections.open_file_system, self._file_hosts)
+
+    def split_files_with(self, pane: PaneBase, spec: ConnectionSpec | None, orientation: Qt.Orientation) -> FilePane:
+        page = self.tabs._page_of(pane)
+        if page is not None:
+            self.tabs.setCurrentWidget(page)
+        new = self._make_file_pane(spec)
+        self.tabs.split_pane(pane, new, orientation)
+        return new
+
+    def open_files(self, spec: ConnectionSpec | None, where: str = "tab", ref: PaneBase | None = None) -> FilePane:
+        """Files instead of a terminal. ``where``: "tab" (this computer | host, like Termius), "right", "down"."""
+        ref = ref or self.tabs.current_item()
+        if where in ("right", "down") and ref is not None:
+            orientation = Qt.Orientation.Vertical if where == "down" else Qt.Orientation.Horizontal
+            return self.split_files_with(ref, spec, orientation)
+        left = self._make_file_pane(ConnectionSpec.local())
+        page = self.tabs.add_pane_tab(left)
+        self.stack.setCurrentWidget(self.tabs)
+        if spec is not None and spec.kind is ConnectionKind.LOCAL:
+            spec = None  # right side: pick a host
+        right = self._make_file_pane(spec)
+        self.tabs.split_pane(left, right, Qt.Orientation.Horizontal)
+        page.custom_title = f"SFTP · {spec.title}" if spec is not None else "SFTP"
+        self.tabs._update_tab(page)
+        return right
+
+    def files_alias(self, alias: str, where: str) -> None:
+        self.open_files(ConnectionSpec.ssh(alias), where)
+
+    def split_alias(self, alias: str, where: str) -> None:
+        """Sidebar "Open to the Right / Below": host next to the current terminal."""
+        pane = self.tabs.current_pane()
+        if pane is None:
+            self.connect_alias(alias, new_tab=True)
+            return
+        orientation = Qt.Orientation.Vertical if where == "down" else Qt.Orientation.Horizontal
+        self.split_with(pane, ConnectionSpec.ssh(alias), orientation)
+
+    def toggle_broadcast(self) -> None:
+        page = self.tabs.current_page()
+        if page is None:
+            self._broadcast_changed(False)
+            return
+        on = self.tabs.toggle_broadcast(page)
+        if on and len(page.panes()) < 2:
+            self.statusBar().showMessage("Broadcast is on — split this tab to type in several terminals at once", 6000)
+        QTimer.singleShot(0, page.active_item.focus_target().setFocus)
+
+    def _broadcast_changed(self, on: bool) -> None:
+        self._actions["broadcast"].setChecked(on)
+        self.broadcast_button.setChecked(on)
+        color = current_palette().warning if on else current_palette().muted
+        self.broadcast_button.setIcon(icon("broadcast", color))
+
+    def arrange_grid(self) -> None:
+        page = self.tabs.current_page()
+        if page is not None:
+            page.arrange_grid()
+            QTimer.singleShot(0, page.active_item.focus_target().setFocus)
+
+    def open_split_view(self, aliases: list[str]) -> None:
+        """Open several hosts in one tab, laid out as a grid (like a split view)."""
+        aliases = [a for a in aliases if a]
+        if not aliases:
+            return
+        first = self.open_spec(ConnectionSpec.ssh(aliases[0]))
+        page = self.tabs.current_page()
+        for alias in aliases[1:]:
+            pane = self._make_pane(ConnectionSpec.ssh(alias))
+            self.tabs.split_pane(first, pane, Qt.Orientation.Horizontal)
+            QTimer.singleShot(0, pane.start)
+        if page is not None:
+            page.custom_title = "Split view"
+            page.arrange_grid()
+            self.tabs.refresh_icons()
+
+    # -- appearance ------------------------------------------------------- #
+    def toggle_appearance(self) -> None:
+        visible = not self.appearance.isVisible()
+        if visible:
+            pane = self.tabs.current_pane()
+            scheme = (pane.terminal.scheme_override if pane else None) or self.settings.color_scheme
+            self.appearance.load(scheme, self.settings.font_family, self.settings.font_size)
+        self.appearance.setVisible(visible)
+        self.theme_button.setChecked(visible)
+        if visible:
+            sizes = self.splitter.sizes()
+            if len(sizes) == 3 and sizes[2] < 200:
+                panel = 290
+                self.splitter.setSizes([sizes[0], max(300, sizes[1] - panel), panel])
+
+    def _scheme_chosen(self, name: str, scope: str) -> None:
+        pane = self.tabs.current_pane()
+        if scope == "pane" and pane is not None:
+            pane.set_theme(name)
+            return
+        self.settings.color_scheme = name
+        self.save_settings()
+        for p in self.tabs.all_panes():
+            p.apply_settings(self.settings)
+
+    def _font_changed(self, family: str, size: int) -> None:
+        if not family:
+            return
+        self.settings.font_family, self.settings.font_size = family, size
+        self.save_settings()
+        for p in self.tabs.all_panes():
+            p.apply_settings(self.settings)
 
     def _split_from(self, pane: TerminalPane, orientation: Qt.Orientation) -> None:
         page = self.tabs.current_page()
