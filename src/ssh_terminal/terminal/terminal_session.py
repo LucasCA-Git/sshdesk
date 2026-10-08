@@ -92,11 +92,15 @@ class TerminalSession(QObject):
 
             self._fail(describe_exception(exc))
             return
-        backend.set_callbacks(
-            lambda data: self._data_sig.emit(gen, data),
-            lambda state, msg: self._state_sig.emit(gen, state, msg),
-            lambda info: self._closed_sig.emit(gen, info),
-        )
+        def safe(signal):  # noqa: ANN001, ANN202 - the tab may be closed while the worker still reports
+            def emit(*args) -> None:  # noqa: ANN002
+                try:
+                    signal.emit(gen, *args)
+                except RuntimeError:  # "Signal source has been deleted"
+                    pass
+            return emit
+
+        backend.set_callbacks(safe(self._data_sig), safe(self._state_sig), safe(self._closed_sig))
         self.backend = backend
         try:
             backend.start(*self._size)

@@ -46,6 +46,7 @@ class TerminalWidget(QAbstractScrollArea):
     """Terminal view. Emits ``input_ready`` with the bytes typed by the user."""
 
     input_ready = Signal(bytes)
+    user_input = Signal(bytes)  # typed/pasted by the user only (used for broadcast input)
     size_changed = Signal(int, int)  # cols, rows
     title_changed = Signal(str)
     bell_rang = Signal()
@@ -66,6 +67,7 @@ class TerminalWidget(QAbstractScrollArea):
             on_title=self.title_changed.emit,
             on_bell=self._on_bell,
         )
+        self.scheme_override: str | None = None  # per-terminal theme (None = follow settings)
         self.scheme: ColorScheme = get_scheme(settings.color_scheme)
         self._font_size = settings.font_size
         self._pending = bytearray()
@@ -109,7 +111,7 @@ class TerminalWidget(QAbstractScrollArea):
     # ------------------------------------------------------------------ #
     def apply_settings(self, settings: AppSettings) -> None:
         self.settings = settings
-        self.scheme = get_scheme(settings.color_scheme)
+        self.scheme = get_scheme(self.scheme_override or settings.color_scheme)
         self._font_size = settings.font_size
         self.emulator.set_scrollback(settings.scrollback_lines)
         if settings.cursor_blink:
@@ -141,6 +143,11 @@ class TerminalWidget(QAbstractScrollArea):
         self._ascent = metrics.ascent()
         self.setFont(font)
         self._recompute_grid()
+        self.viewport().update()
+
+    def set_scheme_override(self, name: str | None) -> None:
+        self.scheme_override = name
+        self.scheme = get_scheme(name or self.settings.color_scheme)
         self.viewport().update()
 
     def zoom(self, delta: int) -> None:
@@ -263,6 +270,7 @@ class TerminalWidget(QAbstractScrollArea):
             data = b"\x1b[200~" + data.replace(b"\x1b[201~", b"") + b"\x1b[201~"
         self.scroll_to_bottom()
         self.input_ready.emit(data)
+        self.user_input.emit(data)
 
     def select_all(self) -> None:
         total = self.emulator.history_size + self.emulator.lines
@@ -554,12 +562,14 @@ class TerminalWidget(QAbstractScrollArea):
         self.scroll_to_bottom()
         self._blink_on = True
         self.input_ready.emit(data)
+        self.user_input.emit(data)
 
     def inputMethodEvent(self, event: QInputMethodEvent) -> None:  # noqa: N802
         text = event.commitString()
         if text:
             self.scroll_to_bottom()
             self.input_ready.emit(text.encode("utf-8"))
+            self.user_input.emit(text.encode("utf-8"))
         event.accept()
 
     def inputMethodQuery(self, query: Qt.InputMethodQuery):  # noqa: N802, ANN201
