@@ -267,3 +267,41 @@ def test_proxycommand(live) -> None:
         assert out.split()[2:] == ["127.0.0.1", "2223"]
     finally:
         conn.close()
+
+
+def test_remote_fs_transfers(live) -> None:
+    """Folder upload, remote -> remote copy through ProxyJump, download, recursive delete."""
+    from ssh_terminal.services.file_systems import LocalFS, RemoteFS, Transfer
+
+    ssh, tmp = live
+    src_dir = tmp / "project"
+    (src_dir / "sub").mkdir(parents=True)
+    (src_dir / "a.txt").write_text("A" * 300_000)
+    (src_dir / "sub" / "b.txt").write_text("bee")
+    local = LocalFS()
+    bastion = RemoteFS(ssh.connect(ssh.resolve("bastion"), ScriptedPrompter()))
+    target = RemoteFS(ssh.connect(ssh.resolve("target"), ScriptedPrompter()))
+    try:
+        # both test sshd run on this machine, so each side gets its own folder
+        dirs = {id(bastion): "/tmp/sshdesk_fs_a", id(target): "/tmp/sshdesk_fs_b"}
+        for fs in (bastion, target):
+            if fs.exists(dirs[id(fs)]):
+                fs.remove(fs.stat(dirs[id(fs)]))
+            fs.mkdir(dirs[id(fs)])
+        seen = []
+        Transfer(local, [local.stat(str(src_dir))], bastion, "/tmp/sshdesk_fs_a").run(lambda p: seen.append(p.done))
+        assert seen[-1] == 300_003
+        names = [e.name for e in bastion.listdir("/tmp/sshdesk_fs_a/project")]
+        assert names == ["sub", "a.txt"]
+        Transfer(bastion, [bastion.stat("/tmp/sshdesk_fs_a/project")], target, "/tmp/sshdesk_fs_b").run()
+        down = tmp / "down"
+        down.mkdir()
+        Transfer(target, [target.stat("/tmp/sshdesk_fs_b/project")], local, str(down)).run()
+        assert (down / "project" / "sub" / "b.txt").read_text() == "bee"
+        assert (down / "project" / "a.txt").stat().st_size == 300_000
+        for fs in (bastion, target):
+            fs.remove(fs.stat(dirs[id(fs)]))
+            assert not fs.exists(dirs[id(fs)])
+    finally:
+        bastion.close()
+        target.close()

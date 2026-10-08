@@ -63,13 +63,39 @@ class ConnectionService:
 
         return UnixPtyBackend(profile.argv, term_type=settings.term_type)
 
-    def _ssh_backend(self, spec: ConnectionSpec) -> TerminalBackend:
+    def _apply_ssh_options(self) -> AppSettings:
         settings = self._settings()
         self.ssh.options.timeout = settings.connect_timeout
         self.ssh.options.keepalive = settings.keepalive_interval
         self.ssh.options.use_agent = settings.use_agent
         self.ssh.options.allow_keyring = settings.allow_keyring
         self.ssh.options.default_strict = settings.default_strict_host_key_checking
+        return settings
+
+    def open_file_system(self, spec: ConnectionSpec, progress: Callable[[str], None] | None = None):  # noqa: ANN201
+        """Blocking (run it in a worker): LocalFS, or an SFTP RemoteFS for an SSH host."""
+        from ssh_terminal.services.file_systems import LocalFS, RemoteFS
+
+        if spec.kind is ConnectionKind.LOCAL:
+            return LocalFS()
+        self._apply_ssh_options()
+        if spec.adhoc:
+            resolved = self.ssh.resolve_adhoc(spec.adhoc.get("user"), spec.adhoc["hostname"], spec.adhoc.get("port"))
+        else:
+            if SSHConfigSet.load(self.config.path).find(spec.alias) is None:
+                raise HostNotFoundError(spec.alias)
+            resolved = self.ssh.resolve(spec.alias)
+        connection = self.ssh.connector(self.prompter, progress=progress).connect(resolved)
+        try:
+            fs = RemoteFS(connection)
+        except Exception:
+            connection.close()
+            raise
+        fs.label = spec.alias or resolved.endpoint
+        return fs
+
+    def _ssh_backend(self, spec: ConnectionSpec) -> TerminalBackend:
+        settings = self._apply_ssh_options()
 
         if spec.adhoc:
             adhoc = spec.adhoc
