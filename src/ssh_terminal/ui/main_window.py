@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ssh_terminal import __app_name__
+from ssh_terminal import __app_name__, __version__
 from ssh_terminal.errors import ConfigError, FriendlyError, describe_exception
 from ssh_terminal.models.connection import ConnectionKind, ConnectionSpec, SessionState
 from ssh_terminal.models.ssh_host import SSHHost
@@ -45,7 +45,14 @@ from ssh_terminal.ui.connection_panel import ConnectionPanel
 from ssh_terminal.ui.dialogs import confirm, mark_primary, show_error
 from ssh_terminal.ui.file_pane import FilePane
 from ssh_terminal.ui.grip_splitter import GripSplitter
-from ssh_terminal.ui.info_dialogs import DiagnosticsDialog, ExternalChangeChoice, ExternalChangeDialog, WelcomeDialog, about_text
+from ssh_terminal.ui.info_dialogs import (
+    DiagnosticsDialog,
+    ExternalChangeChoice,
+    ExternalChangeDialog,
+    WelcomeDialog,
+    WhatsNewDialog,
+    about_text,
+)
 from ssh_terminal.ui.port_forward_dialog import PortForwardDialog
 from ssh_terminal.ui.prompter import QtAuthPrompter
 from ssh_terminal.ui.settings_dialog import SettingsDialog
@@ -239,6 +246,7 @@ class MainWindow(QMainWindow):
         a("search", "Search Connections", self.focus_search)
         a("documentation", "Documentation", self.show_documentation)
         a("about", f"About {__app_name__}", self.show_about)
+        a("whats_new", "What's New", lambda: self.show_whats_new(all_releases=True))
         a("diagnostics", "Diagnostics", self.show_diagnostics)
         a("open_logs", "Open Log Folder", lambda: self._open_path(get_log_dir()))
         a("sign_in", "Sign In…", lambda: self.sign_in(create=False))
@@ -310,6 +318,7 @@ class MainWindow(QMainWindow):
         account_menu.aboutToShow.connect(self._update_account_ui)
 
         help_menu = bar.addMenu("&Help")
+        help_menu.addAction(acts["whats_new"])
         help_menu.addAction(acts["documentation"])
         help_menu.addAction(acts["diagnostics"])
         help_menu.addAction(acts["open_logs"])
@@ -1478,6 +1487,16 @@ class MainWindow(QMainWindow):
         box.setText(about_text())
         box.exec()
 
+    def show_whats_new(self, previous: str = "", fresh_install: bool = False, all_releases: bool = False) -> None:
+        from ssh_terminal.services.changelog import load_releases, releases_since
+
+        releases = load_releases()
+        shown = releases if all_releases else releases_since(releases, previous, __version__)
+        dlg = WhatsNewDialog(shown, previous, fresh_install, self)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._whats_new = dlg
+        dlg.open()  # non-blocking
+
     def show_documentation(self) -> None:
         keys = self.settings.keybindings
         rows = "".join(
@@ -1507,6 +1526,7 @@ class MainWindow(QMainWindow):
         if self.ctx.teams.signed_in:
             self.sync_teams(quiet=True)
         s = self.settings
+        fresh_install = s.first_run
         if s.first_run:
             s.first_run = False
             self.save_settings()
@@ -1517,6 +1537,10 @@ class MainWindow(QMainWindow):
                 self._create_config()
             elif result == WelcomeDialog.IMPORT:
                 self.reload_config(show_message=True)
+        if s.last_seen_version != __version__:  # first launch of this version only
+            previous, s.last_seen_version = s.last_seen_version, __version__
+            self.save_settings()
+            QTimer.singleShot(400, lambda: self.show_whats_new(previous=previous, fresh_install=fresh_install))
         specs = list(self.startup.connect)
         if not specs and s.restore_tabs:
             specs = [ConnectionSpec.from_dict(d) for d in s.open_tabs if isinstance(d, dict)]

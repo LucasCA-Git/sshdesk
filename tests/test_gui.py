@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from ssh_terminal.models.connection import ConnectionSpec, SessionState  # noqa: E402
 
@@ -56,11 +56,13 @@ class OfflineBackend:
 
 @pytest.fixture
 def window(qapp, ssh_config: Path):
+    from ssh_terminal import __version__
     from ssh_terminal.services.app_context import AppContext
     from ssh_terminal.ui.main_window import MainWindow
 
     ctx = AppContext.create()
     ctx.settings.first_run = False
+    ctx.settings.last_seen_version = __version__  # no "What's New" popup in GUI tests
     ctx.resolver.prefer_openssh = False
     w = MainWindow(ctx)
     # No real network in GUI tests: SSH panes get an idle offline backend
@@ -512,3 +514,39 @@ def test_share_single_host_keeps_or_picks_group(window, qapp, monkeypatch) -> No
     window.share_host("server-hml", 7)  # already in the team -> updated (moved into the group)
     _wait_for(qapp, lambda: len(saved) == 2)
     assert saved[1][0]["group"] == "Staging EU" and saved[1][1] == 41
+
+
+def test_whats_new_shows_once_per_version(qapp, ssh_config: Path) -> None:
+    from ssh_terminal import __version__
+    from ssh_terminal.services.app_context import AppContext
+    from ssh_terminal.ui.info_dialogs import WhatsNewDialog
+    from ssh_terminal.ui.main_window import MainWindow
+
+    def launch(last_seen: str):
+        ctx = AppContext.create()
+        ctx.settings.first_run = False
+        ctx.settings.last_seen_version = last_seen
+        ctx.resolver.prefer_openssh = False
+        w = MainWindow(ctx)
+        w.connections._ssh_backend = lambda spec: OfflineBackend(spec.title)
+        w._after_show()
+        process(qapp, 600)
+        dialogs = [d for d in qapp.topLevelWidgets() if isinstance(d, WhatsNewDialog) and d.isVisible()]
+        return w, dialogs
+
+    w, dialogs = launch("1.0.0")  # just updated
+    assert len(dialogs) == 1 and w.settings.last_seen_version == __version__
+    text = dialogs[0].notes.toPlainText()
+    assert "Broadcast input" in text and "First release" not in text  # only what changed since 1.0.0
+    assert "Thanks for updating" in dialogs[0].windowTitle() or any(
+        "Thanks for updating" in lbl.text() for lbl in dialogs[0].findChildren(QLabel))
+    dialogs[0].accept()
+    w.close()
+
+    w2, dialogs2 = launch(__version__)  # opened again: nothing
+    assert dialogs2 == []
+    w2.show_whats_new(all_releases=True)  # Help › What's New shows everything
+    process(qapp, 50)
+    assert "First release" in w2._whats_new.notes.toPlainText()
+    w2._whats_new.accept()
+    w2.close()

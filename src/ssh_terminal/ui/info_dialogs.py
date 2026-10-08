@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ssh_terminal import __app_name__, __version__
+from ssh_terminal import __app_name__, __repo_url__, __version__
 from ssh_terminal.ui.dialogs import mark_primary, monospace_font
 from ssh_terminal.ui.theme import app_icon, current_palette
 
@@ -96,6 +96,69 @@ class WelcomeDialog(QDialog):
         buttons.addWidget(cont)
         buttons.addWidget(main)
         buttons.addStretch(1)
+        layout.addLayout(buttons)
+
+
+class WhatsNewDialog(QDialog):
+    """Thanks + release notes, shown once after installing or updating."""
+
+    def __init__(self, releases: list, previous: str = "", fresh_install: bool = False,
+                 parent: QWidget | None = None) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QTextBrowser
+
+        super().__init__(parent)
+        self.setWindowTitle(f"What's New in {__app_name__} {__version__}")
+        self.setMinimumSize(560, 520)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(app_icon().pixmap(56, 56))
+        header.addWidget(logo)
+        titles = QVBoxLayout()
+        if fresh_install:
+            heading = f"Thanks for installing {__app_name__}!"
+        elif previous and previous != __version__:
+            heading = f"Thanks for updating to {__app_name__} {__version__}!"
+        else:
+            heading = f"What's new in {__app_name__} {__version__}"
+        title = QLabel(heading)
+        title.setObjectName("DialogHeader")
+        titles.addWidget(title)
+        sub = QLabel(f"Updated from {previous} to {__version__}." if previous and previous != __version__
+                     else f"Version {__version__}")
+        sub.setProperty("muted", True)
+        titles.addWidget(sub)
+        header.addLayout(titles, 1)
+        layout.addLayout(header)
+
+        thanks = QLabel(
+            f"{__app_name__} is free and open source, built for the community. Thank you for using it! "
+            "If it helps you, please check out the project on GitHub: leave a star, report bugs, "
+            "suggest features or contribute."
+        )
+        thanks.setWordWrap(True)
+        layout.addWidget(thanks)
+
+        self.notes = QTextBrowser()
+        self.notes.setOpenExternalLinks(True)
+        self.notes.setMarkdown("\n\n".join(r.markdown() for r in releases) or "No release notes available.")
+        layout.addWidget(self.notes, 1)
+
+        buttons = QHBoxLayout()
+        releases_btn = QPushButton("Release Notes on GitHub")
+        releases_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(f"{__repo_url__}/releases")))
+        github = mark_primary(QPushButton("★  View on GitHub"))
+        github.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(__repo_url__)))
+        close = QPushButton("Let's go")
+        close.clicked.connect(self.accept)
+        close.setDefault(True)
+        buttons.addWidget(releases_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(github)
+        buttons.addWidget(close)
         layout.addLayout(buttons)
 
 

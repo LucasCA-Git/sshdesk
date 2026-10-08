@@ -75,6 +75,7 @@ class AppSettings:
     # General
     ssh_config_path: str = ""  # empty = platform default (~/.ssh/config)
     first_run: bool = True
+    last_seen_version: str = ""  # "What's New" is shown once per version
     confirm_close_connected: bool = True
     watch_config: bool = True
     auto_reload_config: bool = False  # reload silently instead of asking

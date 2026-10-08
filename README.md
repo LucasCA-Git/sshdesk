@@ -326,3 +326,9 @@ Os testes usam um `HOME` temporário: o seu `~/.ssh/config` real **nunca** é to
 - Reporte de mouse apenas no modo SGR (1006), que é o usado por vim, htop, tmux e mc modernos.
 - SFTP e Port Forwarding têm API completa; o SFTP ainda não tem navegador de arquivos na interface.
 - macOS não foi testado (o código evita impedimentos, mas não há build oficial).
+
+## Lançando uma nova versão
+
+1. Suba a versão em `src/ssh_terminal/__init__.py` (`__version__`, semver).
+2. Adicione a entrada no topo de `src/ssh_terminal/resources/CHANGELOG.md` (em inglês): `## [x.y.z] - AAAA-MM-DD` com seções `### New`, `### Improved`, `### Fixed`. Um teste falha se você esquecer.
+3. Na primeira vez que cada pessoa abrir a nova versão, o app mostra a janela **What's New** (agradecimento + o que mudou desde a versão que ela tinha + link do GitHub). Ela não aparece de novo depois; dá para reabrir em *Help › What's New*.
