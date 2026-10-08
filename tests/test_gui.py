@@ -298,12 +298,71 @@ def _wait_for(qapp, predicate, tries: int = 60) -> None:
         process(qapp, 50)
 
 
-def test_sidebar_toggle_button_on_tab_bar(window, qapp) -> None:
-    assert window.sidebar_button.isChecked() == window.sidebar.isVisible()
+def test_sidebar_toggle_keeps_grip_to_pull_it_back(window, qapp) -> None:
+    from ssh_terminal.ui.grip_splitter import GripHandle
+
+    process(qapp, 50)
+    assert window._sidebar_open() and window.sidebar_button.isChecked()
     window.sidebar_button.click()
-    assert not window.sidebar.isVisible() and not window.settings.sidebar_visible
-    window.sidebar_button.click()
-    assert window.sidebar.isVisible() and window.sidebar_button.isChecked()
+    assert window.splitter.sizes()[0] == 0 and not window.settings.sidebar_visible
+    handle = window.splitter.handle(1)
+    assert isinstance(handle, GripHandle) and handle.isVisible() and handle.width() >= 6  # still there to pull
+    window.splitter.handle_double_clicked.emit(1)  # double-click the grip
+    assert window._sidebar_open() and window.sidebar_button.isChecked()
+    # dragging the grip to the edge collapses it, and the state follows
+    window.splitter.moveSplitter(0, 1)
+    window._sidebar_moved()
+    assert not window.settings.sidebar_visible and not window._actions["toggle_sidebar"].isChecked()
+    window.splitter.moveSplitter(260, 1)
+    window._sidebar_moved()
+    assert window.settings.sidebar_visible and window.settings.sidebar_width >= 200
+
+
+def test_share_group_with_team_and_team_subgroups(window, qapp, monkeypatch) -> None:
+    import ssh_terminal.ui.main_window as mw
+    from ssh_terminal.services.team_service import TeamInfo
+
+    team = TeamInfo(7, "devops", "devops", "owner")
+    saved: list[tuple[int, dict, int | None]] = []
+    teams = window.ctx.teams
+    monkeypatch.setattr(type(teams), "teams", property(lambda self: [team]), raising=False)
+    monkeypatch.setattr(teams, "team_hosts", lambda team_id: [{"alias": "server-hml", "id": 41}])
+    monkeypatch.setattr(teams, "save_host", lambda tid, payload, host_id=None: saved.append((tid, payload, host_id)) or {})
+    monkeypatch.setattr(window, "sync_teams", lambda *a, **k: None)
+    monkeypatch.setattr(mw, "confirm", lambda *a, **k: True)
+    window.settings.groups = {"Staging EU": ["server-prod", "server-hml"]}
+    window.share_group("Staging EU", 7)
+    _wait_for(qapp, lambda: len(saved) == 2)
+    by_alias = {p["alias"]: (tid, p, hid) for tid, p, hid in saved}
+    assert by_alias["server-prod"][2] is None and by_alias["server-hml"][2] == 41  # create vs update
+    assert all(p["group"] == "Staging EU" and tid == 7 for tid, p, _ in saved)
+
+    # the group section offers "Share Group with Team"
+    window.sidebar.populate(window.ctx.config.hosts(), [], window.settings, editable_teams=[team])
+    tree = window.sidebar.tree
+    sections = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
+    assert any(sec.text(0) == "STAGING EU" for sec in sections)
+
+
+def test_team_hosts_show_in_team_subgroups(qapp, ssh_config: Path) -> None:
+    from ssh_terminal.models.app_settings import AppSettings
+    from ssh_terminal.models.ssh_host import SSHHost
+    from ssh_terminal.services.team_service import TeamInfo
+    from ssh_terminal.ui.connection_panel import ConnectionPanel
+
+    team = TeamInfo(7, "devops", "devops", "member")
+    hosts = [SSHHost(alias="vm-a", hostname="1.1.1.1"), SSHHost(alias="vm-b", hostname="1.1.1.2", comment="web box"),
+             SSHHost(alias="vm-c", hostname="1.1.1.3")]
+    groups = {"vm-a": "Staging EU", "vm-b": "Staging EU"}
+    panel = ConnectionPanel()
+    panel.populate(hosts, [], AppSettings(), team_of=lambda h: team, team_group_of=lambda a: groups.get(a, ""))
+    tree = panel.tree
+    sections = {tree.topLevelItem(i).text(0): [tree.topLevelItem(i).child(j).text(0) for j in range(tree.topLevelItem(i).childCount())]
+                for i in range(tree.topLevelItemCount())}
+    assert sections["TEAM · DEVOPS"] == ["vm-c"]
+    assert sections["TEAM · DEVOPS › STAGING EU"] == ["vm-a", "vm-b"]
+    vm_b = tree.topLevelItem(1).child(1)
+    assert "web box" in vm_b.toolTip(0) and "devops" in vm_b.toolTip(0)
 
 
 def test_files_tab_drop_upload_and_mixed_split(window, qapp, tmp_path: Path) -> None:

@@ -101,10 +101,13 @@ def test_owner_shares_member_receives(server: str, isolated_home: Path, tmp_path
 
     # second sync: nothing changed -> 304; Include not duplicated
     assert member.sync(cfg, writer).unchanged
-    owner.save_host(team.id, host_to_payload(SSHHost(alias="api", hostname="10.0.0.30")))
+    owner.save_host(team.id, host_to_payload(SSHHost(alias="api", hostname="10.0.0.30", comment="API box"), "Staging EU"))
     again = member.sync(cfg, writer)
     assert not again.unchanged and again.hosts_written == 2 and not again.include_added
     assert cfg.read_text().count("Include") == 1
+    # the group travels with the host and survives a restart
+    assert member.group_of("api") == "Staging EU" and member.group_of("db-prod") == ""
+    assert TeamService(member_creds, tmp_path / "member").group_of("api") == "Staging EU"
 
     # token survives a restart (keyring), sign out removes managed files
     restarted = TeamService(member_creds, tmp_path / "member")

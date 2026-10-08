@@ -271,6 +271,7 @@ class TeamService:
         self.teams: list[TeamInfo] = []
         self._token: str | None = None
         self._etag: str | None = None
+        self.host_groups: dict[str, str] = {}  # team host alias -> group name (from the last sync)
         self._load_state()
 
     # -- persistence of non-secret state ---------------------------------- #
@@ -285,6 +286,13 @@ class TeamService:
             self._token = self._keyring_get(acc["server"], acc["email"])
         self.teams = [TeamInfo(**t) for t in data.get("teams", []) if isinstance(t, dict)]
         self._etag = data.get("etag")
+        groups = data.get("host_groups")
+        if isinstance(groups, dict):
+            self.host_groups = {str(k): str(v) for k, v in groups.items()}
+
+    def group_of(self, alias: str) -> str:
+        """Group a team host was shared under ("" = none)."""
+        return self.host_groups.get(alias, "")
 
     def _save_state(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -292,6 +300,7 @@ class TeamService:
             "account": self.account.__dict__ if self.account else None,
             "teams": [t.__dict__ for t in self.teams],
             "etag": self._etag,
+            "host_groups": self.host_groups,
         }
         self.state_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -351,6 +360,7 @@ class TeamService:
         self._token = None
         self.teams = []
         self._etag = None
+        self.host_groups = {}
         self.clear_team_files()
         self._save_state()
 
@@ -481,6 +491,7 @@ class TeamService:
         all_known: list[str] = []
         seen_aliases: set[str] = set()
         self.teams = []
+        self.host_groups = {}
         for team in teams:
             info = TeamInfo(team["id"], team["name"], team["slug"], team["role"], team["revision"], 0, len(team["hosts"]))
             self.teams.append(info)
@@ -495,6 +506,8 @@ class TeamService:
                     continue
                 seen_aliases.add(host["alias"])
                 usable.append(host)
+                if host.get("group"):
+                    self.host_groups[host["alias"]] = " ".join(str(host["group"]).split())
             path = self.team_file(team["slug"])
             path.write_text(render_team_config(team, usable, self.known_hosts_file), encoding="utf-8")
             wanted_files.add(path.name)

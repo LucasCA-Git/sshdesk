@@ -159,6 +159,7 @@ class ConnectionPanel(QWidget):
     team_edit_requested = Signal(str)
     team_delete_requested = Signal(str)
     split_view_requested = Signal(list)  # aliases
+    share_group_requested = Signal(str, int)  # group name, team id
     open_split_requested = Signal(str, str)  # alias, "right" | "down" (next to the current terminal)
     files_requested = Signal(str, str)  # alias, "tab" | "right" | "down"  (SFTP file browser)
     git_test_requested = Signal(str)
@@ -288,10 +289,12 @@ class ConnectionPanel(QWidget):
         settings: AppSettings,
         team_of: Callable[[SSHHost], TeamInfo | None] | None = None,
         editable_teams: list[TeamInfo] | None = None,
+        team_group_of: Callable[[str], str] | None = None,
     ) -> None:
         self._settings = settings
         self._editable_teams = editable_teams or []
         team_of = team_of or (lambda _h: None)
+        team_group_of = team_group_of or (lambda _a: "")
         teams_by_alias = {h.alias: t for h in hosts if (t := team_of(h)) is not None}
         self._hosts = hosts
         selected = self.selected_alias()
@@ -361,14 +364,19 @@ class ConnectionPanel(QWidget):
             for host in sorted(members, key=lambda h: h.alias.lower()):
                 host_item(sec, host)
                 grouped.add(host.alias)
-        team_sections: dict[str, tuple[TeamInfo, list[SSHHost]]] = {}
+        # team hosts: one section per team, and per group inside the team
+        team_sections: dict[tuple[str, str], tuple[TeamInfo, list[SSHHost]]] = {}
         for host in hosts:
             team = teams_by_alias.get(host.alias)
             if team is not None and host.alias not in grouped:
-                team_sections.setdefault(team.slug, (team, []))[1].append(host)
-        for slug, (team, members) in sorted(team_sections.items(), key=lambda kv: kv[1][0].name.lower()):
-            sec = section(f"TEAM · {team.name.upper()}", f"team:{slug}")
-            for host in members:
+                key = (team.slug, team_group_of(host.alias))
+                team_sections.setdefault(key, (team, []))[1].append(host)
+        for (slug, group), (team, members) in sorted(
+            team_sections.items(), key=lambda kv: (kv[1][0].name.lower(), kv[0][1] != "", kv[0][1].lower())
+        ):
+            title = f"TEAM · {team.name.upper()}" + (f" › {group.upper()}" if group else "")
+            sec = section(title, f"team:{slug}" + (f":{group}" if group else ""))
+            for host in sorted(members, key=lambda h: h.alias.lower()):
                 host_item(sec, host)
                 grouped.add(host.alias)
         ungrouped = [h for h in hosts if h.alias not in grouped]
@@ -447,6 +455,14 @@ class ConnectionPanel(QWidget):
         item = self.tree.itemAt(pos)
         menu = QMenu(self)
         if item is None or item.data(0, ROLE_KIND) == KIND_SECTION:
+            key = item.data(0, ROLE_SECTION) if item is not None else ""
+            if isinstance(key, str) and key.startswith("group:") and self._editable_teams:
+                group = key.removeprefix("group:")
+                count = item.childCount()
+                share = menu.addMenu(icon("server"), f"Share Group with Team ({count} host{'s' if count != 1 else ''})")
+                for team in self._editable_teams:
+                    share.addAction(team.name, lambda t=team.id, g=group: self.share_group_requested.emit(g, t))
+                menu.addSeparator()
             menu.addAction(icon("plus"), "New Connection", self.new_requested.emit)
             menu.addAction(icon("refresh"), "Reload SSH Config", self.reload_requested.emit)
             menu.exec(self.tree.viewport().mapToGlobal(pos))

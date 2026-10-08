@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSplitter,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -45,6 +44,7 @@ from ssh_terminal.ui.connection_dialog import ConnectionDialog
 from ssh_terminal.ui.connection_panel import ConnectionPanel
 from ssh_terminal.ui.dialogs import confirm, mark_primary, show_error
 from ssh_terminal.ui.file_pane import FilePane
+from ssh_terminal.ui.grip_splitter import GripSplitter
 from ssh_terminal.ui.info_dialogs import DiagnosticsDialog, ExternalChangeChoice, ExternalChangeDialog, WelcomeDialog, about_text
 from ssh_terminal.ui.port_forward_dialog import PortForwardDialog
 from ssh_terminal.ui.prompter import QtAuthPrompter
@@ -119,7 +119,9 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.addWidget(self.empty)
         self.stack.addWidget(self.tabs)
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = GripSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setObjectName("MainSplitter")
+        self.splitter.setHandleWidth(9)
         self.splitter.addWidget(self.sidebar)
         self.splitter.addWidget(self.stack)
         self.appearance = AppearancePanel()
@@ -127,7 +129,9 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.appearance)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.setCollapsible(0, True)  # drag the grip to the left edge to hide the hosts
         self.splitter.setCollapsible(1, False)
+        self.splitter.handle_double_clicked.connect(lambda i: i == 1 and self.toggle_sidebar())
         self.setCentralWidget(self.splitter)
 
         self._build_status_bar()
@@ -333,6 +337,7 @@ class MainWindow(QMainWindow):
         sb.group_set.connect(self.set_group)
         sb.role_set.connect(self.set_role)
         sb.share_requested.connect(self.share_host)
+        sb.share_group_requested.connect(self.share_group)
         sb.team_edit_requested.connect(self.edit_team_host)
         sb.team_delete_requested.connect(self.delete_team_host)
         sb.git_test_requested.connect(self.test_git_host)
@@ -393,7 +398,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.sidebar_button)
         t.setCornerWidget(left, Qt.Corner.TopLeftCorner)
         t.session_closed.connect(lambda _p, _i: self._states_timer.start())
-        self.splitter.splitterMoved.connect(lambda *_: self._remember_sidebar_width())
+        self.splitter.splitterMoved.connect(lambda *_: self._sidebar_moved())
 
     # ------------------------------------------------------------------ #
     # Settings / theme
@@ -413,7 +418,8 @@ class MainWindow(QMainWindow):
                 reserved.add(sequence[0].toCombined())
         TerminalWidget.reserved_shortcuts = reserved
         self._actions["toggle_sidebar"].setChecked(s.sidebar_visible)
-        self.sidebar.setVisible(s.sidebar_visible)
+        if not initial and self._sidebar_open() != s.sidebar_visible:
+            self._set_sidebar_open(s.sidebar_visible)
         self.sidebar.refresh_icons()
         self.tabs.refresh_icons()
         if hasattr(self, "grid_button"):
@@ -474,6 +480,7 @@ class MainWindow(QMainWindow):
             self.settings,
             team_of=lambda h: teams.team_for_path(h.source_file),
             editable_teams=[t for t in teams.teams if t.can_edit] if teams.signed_in else [],
+            team_group_of=teams.group_of,
         )
         self._update_sidebar_states()
 
@@ -953,13 +960,37 @@ class MainWindow(QMainWindow):
             self.toggle_sidebar()
         self.sidebar.focus_search()
 
-    def toggle_sidebar(self) -> None:
-        visible = not self.sidebar.isVisible()
-        self.sidebar.setVisible(visible)
-        self.settings.sidebar_visible = visible
-        self._actions["toggle_sidebar"].setChecked(visible)
+    # -- hosts sidebar: collapsed (width 0) instead of hidden, so its grip stays to pull it back
+    def _sidebar_open(self) -> bool:
+        return self.splitter.sizes()[0] > 0
+
+    def _set_sidebar_open(self, open_: bool) -> None:
+        sizes = self.splitter.sizes()
+        if open_:
+            width = max(220, self.settings.sidebar_width)
+            sizes[1] = max(300, sizes[1] - (width - sizes[0]))
+            sizes[0] = width
+        else:
+            if sizes[0] > 0:
+                self.settings.sidebar_width = sizes[0]
+            sizes[1] += sizes[0]
+            sizes[0] = 0
+        self.splitter.setSizes(sizes)
+        self.settings.sidebar_visible = open_
+        self._actions["toggle_sidebar"].setChecked(open_)
         self._sync_sidebar_button()
+
+    def toggle_sidebar(self) -> None:
+        self._set_sidebar_open(not self._sidebar_open())
         self.save_settings()
+
+    def _sidebar_moved(self) -> None:
+        self._remember_sidebar_width()
+        open_ = self._sidebar_open()
+        if open_ != self.settings.sidebar_visible:
+            self.settings.sidebar_visible = open_
+            self._actions["toggle_sidebar"].setChecked(open_)
+            self._sync_sidebar_button()
 
     def _sync_sidebar_button(self) -> None:
         if hasattr(self, "sidebar_button"):
@@ -1337,6 +1368,52 @@ class MainWindow(QMainWindow):
         run_async(lambda: self.ctx.teams.save_host(chosen, payload), on_done=shared,
                   on_error=lambda e: show_error(self, FriendlyError("Could not share host", str(e))), name="team-share")
 
+    def share_group(self, group: str, team_id: int) -> None:
+        """Share every personal host of a sidebar group with a team, keeping the group name."""
+        team = next((t for t in self.ctx.teams.teams if t.id == team_id and t.can_edit), None)
+        if team is None:
+            return
+        hosts = [h for a in self.settings.groups.get(group, [])
+                 if (h := self.ctx.config.get_host(a)) is not None and self._team_of_alias(a) is None]
+        if not hosts:
+            self.statusBar().showMessage(f"“{group}” has no personal hosts to share.", 6000)
+            return
+        names = ", ".join(h.alias for h in hosts[:6]) + ("…" if len(hosts) > 6 else "")
+        if not confirm(self, "Share group with team",
+                       f"Share {len(hosts)} host(s) of “{group}” with team “{team.name}”?\n\n{names}\n\n"
+                       f"Members will see them under “{team.name} › {group}”. Hosts that already exist in the team "
+                       "are updated. Passwords and private keys are never shared.", ok_text="Share"):
+            return
+        payloads = [host_to_payload(h, group, self._host_keys_for(h.alias)) for h in hosts]
+
+        def upload() -> tuple[int, int, list[str]]:
+            existing = {h["alias"]: h["id"] for h in self.ctx.teams.team_hosts(team.id)}
+            created = updated = 0
+            errors: list[str] = []
+            for payload in payloads:
+                try:
+                    host_id = existing.get(payload["alias"])
+                    self.ctx.teams.save_host(team.id, payload, host_id)
+                    if host_id:
+                        updated += 1
+                    else:
+                        created += 1
+                except Exception as exc:  # noqa: BLE001 - reported per host
+                    errors.append(f"{payload['alias']}: {exc}")
+            return created, updated, errors
+
+        def done(result: tuple[int, int, list[str]]) -> None:
+            created, updated, errors = result
+            self.statusBar().showMessage(
+                f"“{group}” shared with “{team.name}”: {created} added, {updated} updated.", 8000)
+            if errors:
+                show_error(self, FriendlyError("Some hosts were not shared", "\n".join(errors[:10])))
+            self.sync_teams(force=True)
+
+        self.statusBar().showMessage(f"Sharing “{group}” with “{team.name}”…")
+        run_async(upload, on_done=done, name="team-share-group",
+                  on_error=lambda e: show_error(self, FriendlyError("Could not share group", str(e))))
+
     def _team_host_record(self, team: TeamInfo, alias: str) -> dict | None:
         return next((h for h in self.ctx.teams.team_hosts(team.id) if h["alias"] == alias), None)
 
@@ -1448,7 +1525,8 @@ class MainWindow(QMainWindow):
                 self.restoreGeometry(QByteArray(base64.b64decode(s.window_geometry)))
             except (ValueError, TypeError) as exc:
                 log.debug("Invalid stored geometry: %s", exc)
-        self.splitter.setSizes([max(200, s.sidebar_width), max(400, self.width() - s.sidebar_width)])
+        width = max(200, s.sidebar_width) if s.sidebar_visible else 0
+        self.splitter.setSizes([width, max(400, self.width() - width), 0])
 
     def _remember_sidebar_width(self) -> None:
         sizes = self.splitter.sizes()
