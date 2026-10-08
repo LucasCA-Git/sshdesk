@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import threading
 from pathlib import Path
 
 import pytest
 
-from ssh_terminal.services.file_systems import LocalFS, Transfer, TransferCancelled, human_size
+from ssh_terminal.services.file_systems import DRIVES, LocalFS, Transfer, TransferCancelled, human_size
 
 
 class FakeSFTPClient:
@@ -56,7 +57,8 @@ def test_listdir_sorts_folders_first_and_ops(tree: Path) -> None:
     fs.remove(fs.stat(fs.join(str(tree), "app")))
     assert [e.name for e in fs.listdir(str(tree))] == ["renamed", "big.bin"]
     assert fs.parent(str(tree)) == str(tree.parent)
-    assert fs.parent("/") == "/"
+    # root's parent: itself on POSIX, the drive list ("") on Windows
+    assert fs.parent(tree.anchor) == (DRIVES if sys.platform == "win32" else tree.anchor)
 
 
 @pytest.mark.parametrize("dst_cls", [LocalFS, FakeRemoteFS])
