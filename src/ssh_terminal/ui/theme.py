@@ -182,6 +182,8 @@ QSplitter::handle { background: $border; }
 #AppearancePanel QLabel#PanelSection { color: $muted; font-size: 11px; font-weight: 600; letter-spacing: 1px; }
 QSplitter::handle:horizontal { width: 1px; }
 QSplitter::handle:vertical { height: 1px; }
+#MainSplitter::handle { background: transparent; }
+#MainSplitter::handle:horizontal { width: 9px; }
 
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
 QScrollBar::handle:vertical { background: $border; border-radius: 4px; min-height: 30px; margin: 2px; }
