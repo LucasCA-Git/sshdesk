@@ -1,0 +1,7 @@
+# Runtime dependencies (see pyproject.toml)
+PySide6-Essentials>=6.6
+paramiko>=3.4
+cryptography>=42
+pyte>=0.8.2
+keyring>=24
+pywinpty>=2.0.13; sys_platform == "win32"
