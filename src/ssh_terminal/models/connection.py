@@ -31,6 +31,7 @@ class ConnectionSpec:
     alias: str = ""  # SSH alias (kind=SSH)
     shell: str = ""  # ShellProfile name (kind=LOCAL); empty = default
     adhoc: dict[str, Any] = field(default_factory=dict)  # user/host/port for "ssh user@host" not in config
+    theme: str = ""  # per-terminal color scheme ("" = app setting)
 
     @property
     def title(self) -> str:
@@ -39,7 +40,7 @@ class ConnectionSpec:
         return self.shell or "Local"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind.value, "alias": self.alias, "shell": self.shell, "adhoc": dict(self.adhoc)}
+        return {"kind": self.kind.value, "alias": self.alias, "shell": self.shell, "adhoc": dict(self.adhoc), "theme": self.theme}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ConnectionSpec:
@@ -48,6 +49,7 @@ class ConnectionSpec:
             alias=str(data.get("alias", "")),
             shell=str(data.get("shell", "")),
             adhoc=dict(data.get("adhoc") or {}),
+            theme=str(data.get("theme", "")),
         )
 
     @classmethod

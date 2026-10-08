@@ -29,6 +29,7 @@ class Palette:
     accent: str
     accent_hover: str
     accent_text: str
+    accent_soft: str
     selection: str
     hover: str
     input: str
@@ -40,23 +41,24 @@ class Palette:
 
 DARK = Palette(
     name="dark",
-    window="#16181d",
-    sidebar="#1b1e24",
-    surface="#21252c",
-    surface_alt="#272b33",
-    border="#2c313a",
-    text="#d8dce3",
-    muted="#8a919d",
-    accent="#4c8dff",
-    accent_hover="#6aa1ff",
-    accent_text="#ffffff",
-    selection="#2b3f63",
-    hover="#252a32",
-    input="#14161a",
-    success="#3fb950",
-    warning="#d6a32b",
+    window="#0b111a",
+    sidebar="#0f1722",
+    surface="#141e2b",
+    surface_alt="#182433",
+    border="#1f2d3f",
+    text="#d6e1ec",
+    muted="#7d8fa3",
+    accent="#3ddc97",
+    accent_hover="#62e6ad",
+    accent_text="#05261a",
+    accent_soft="rgba(61, 220, 151, 0.14)",
+    selection="#1c3a3a",
+    hover="#152131",
+    input="#0a1018",
+    success="#3ddc97",
+    warning="#f2c66d",
     danger="#f0605a",
-    tab_active="#14161b",
+    tab_active="#0b111a",
 )
 
 LIGHT = Palette(
@@ -71,6 +73,7 @@ LIGHT = Palette(
     accent="#2f6fe4",
     accent_hover="#255bc0",
     accent_text="#ffffff",
+    accent_soft="rgba(47, 111, 228, 0.12)",
     selection="#cfe0ff",
     hover="#e2e6ec",
     input="#ffffff",
@@ -149,8 +152,13 @@ QToolButton::menu-indicator { image: none; width: 0; }
 QGroupBox { border: 1px solid $border; border-radius: 8px; margin-top: 14px; padding: 12px 10px 10px 10px; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: $muted; }
 
-QTabWidget::pane { border: none; background: $tab_active; }
+QTabWidget::pane { border: none; background: $window; top: 0px; }
+QTabBar { border: none; }
 QTabBar { background: $window; }
+#TerminalTabs > QTabBar::tab { background: $surface; color: $muted; padding: 5px 12px; margin: 7px 3px 5px 3px;
+    border: 1px solid $border; border-radius: 8px; min-width: 80px; max-width: 220px; }
+#TerminalTabs > QTabBar::tab:selected { background: $accent_soft; color: $accent; border: 1px solid $accent; }
+#TerminalTabs > QTabBar::tab:hover:!selected { background: $hover; color: $text; }
 QTabBar::tab { background: transparent; color: $muted; padding: 8px 12px; border: none;
     border-right: 1px solid $border; min-width: 90px; max-width: 240px; }
 QTabBar::tab:selected { background: $tab_active; color: $text; border-top: 2px solid $accent; }
@@ -164,6 +172,14 @@ QStatusBar QLabel { color: $muted; padding: 0 6px; }
 QStatusBar::item { border: none; }
 
 QSplitter::handle { background: $border; }
+#PaneSplitter::handle { background: transparent; }
+#PaneSplitter::handle:horizontal { width: 6px; }
+#PaneSplitter::handle:vertical { height: 6px; }
+#TabPage { background: $window; }
+#PaneHeader QLabel#PaneTitle { font-weight: 600; }
+#PaneHeader QToolButton { padding: 2px; border-radius: 4px; }
+#AppearancePanel { background: $sidebar; border-left: 1px solid $border; }
+#AppearancePanel QLabel#PanelSection { color: $muted; font-size: 11px; font-weight: 600; letter-spacing: 1px; }
 QSplitter::handle:horizontal { width: 1px; }
 QSplitter::handle:vertical { height: 1px; }
 
