@@ -47,6 +47,27 @@ def _apply(h: TeamHost, body: HostIn, user: User) -> None:
     h.updated_by_id = user.id
 
 
+def _same_server(h: TeamHost, body: HostIn) -> bool:
+    """Same HostName, port and ProxyJump, and the same user (or one of them unset)."""
+    if h.hostname.lower() != body.hostname.lower() or h.port != body.port:
+        return False
+    if (h.proxy_jump or "").lower() != (body.proxy_jump or "").lower():
+        return False
+    return h.user == body.user or not h.user or not body.user
+
+
+def _reject_duplicates(team: Team, body: HostIn, host_id: int | None = None) -> None:
+    """A team never holds the same host twice: not by name (any case), not by server."""
+    for other in team.hosts:
+        if other.id == host_id:
+            continue
+        if other.alias.lower() == body.alias.lower():
+            raise HTTPException(status.HTTP_409_CONFLICT, f"A host named '{other.alias}' already exists in this team")
+        if _same_server(other, body):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                f"This server is already in the team as '{other.alias}'")
+
+
 def _commit(db: Session, team: Team, alias: str) -> None:
     team.revision += 1
     try:
@@ -66,6 +87,7 @@ def list_hosts(team_id: int, user: User = Depends(current_user), db: Session = D
 def create_host(team_id: int, body: HostIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> HostOut:
     require_role(membership(db, team_id, user), "owner", "admin")
     team = get_team(db, team_id)
+    _reject_duplicates(team, body)
     h = TeamHost(team_id=team_id)
     _apply(h, body, user)
     db.add(h)
@@ -79,8 +101,10 @@ def update_host(team_id: int, host_id: int, body: HostIn, user: User = Depends(c
     h = db.get(TeamHost, host_id)
     if h is None or h.team_id != team_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Host not found")
+    team = get_team(db, team_id)
+    _reject_duplicates(team, body, host_id)
     _apply(h, body, user)
-    _commit(db, get_team(db, team_id), body.alias)
+    _commit(db, team, body.alias)
     return host_out(h, db)
 
 

@@ -191,3 +191,26 @@ def test_invite_email_sent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert inv["email_sent"] is True
     to = [s for s in sent if isinstance(s, tuple) and s[0] == "to"][0]
     assert to[1] == "new@example.com" and inv["code"] in to[2]
+
+
+def test_team_never_holds_the_same_host_twice(client: TestClient) -> None:
+    owner = register(client, "owner@example.com")
+    team = client.post("/api/v1/teams", headers=owner, json={"name": "Infra"}).json()
+    url = f"/api/v1/teams/{team['id']}/hosts"
+    first = client.post(url, headers=owner, json=HOST)
+    assert first.status_code == 201, first.text
+    # same name with other case
+    r = client.post(url, headers=owner, json={**HOST, "alias": "PAINEL", "hostname": "10.9.9.9"})
+    assert r.status_code == 409 and "already exists" in r.json()["detail"]
+    # same server under another name (user unset counts as the same login)
+    r = client.post(url, headers=owner, json={**HOST, "alias": "painel-2", "user": ""})
+    assert r.status_code == 409 and "already in the team as 'painel'" in r.json()["detail"]
+    # different user, port or bastion = a different host
+    assert client.post(url, headers=owner, json={**HOST, "alias": "painel-root", "user": "root"}).status_code == 201
+    assert client.post(url, headers=owner, json={**HOST, "alias": "painel-2222", "port": 2222}).status_code == 201
+    other = client.post(url, headers=owner, json={**HOST, "alias": "painel-dmz", "proxy_jump": "bastion"})
+    assert other.status_code == 201
+    # updating one host into a copy of another is refused; updating itself is fine
+    r = client.put(f"{url}/{other.json()['id']}", headers=owner, json={**HOST, "alias": "painel-dmz"})
+    assert r.status_code == 409
+    assert client.put(f"{url}/{first.json()['id']}", headers=owner, json={**HOST, "group": "HML"}).status_code == 200
