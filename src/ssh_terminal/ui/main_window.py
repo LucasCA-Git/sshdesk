@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
         self.apply_settings(initial=True)
         self.reload_config(show_message=False)
         self._restore_geometry()
-        QTimer.singleShot(0, self._after_show)
+        QTimer.singleShot(0, self, self._after_show)  # cancelled if the window is deleted first
 
     # ------------------------------------------------------------------ #
     @property
@@ -932,7 +932,7 @@ class MainWindow(QMainWindow):
         if pane.state is SessionState.CONNECTED and pane.spec.kind is ConnectionKind.SSH and pane.spec.alias:
             self.settings.add_recent(pane.spec.alias)
             self.save_settings()
-            QTimer.singleShot(0, self._refresh_sidebar)
+            QTimer.singleShot(0, self, self._refresh_sidebar)
         self._states_timer.start()
         if pane is self.tabs.current_pane():
             self._update_status(pane)
@@ -1630,7 +1630,7 @@ class MainWindow(QMainWindow):
         if s.last_seen_version != __version__:  # first launch of this version only
             previous, s.last_seen_version = s.last_seen_version, __version__
             self.save_settings()
-            QTimer.singleShot(400, lambda: self.show_whats_new(previous=previous, fresh_install=fresh_install))
+            QTimer.singleShot(400, self, lambda: self.show_whats_new(previous=previous, fresh_install=fresh_install))
         specs = list(self.startup.connect)
         if not specs and s.restore_tabs:
             specs = [ConnectionSpec.from_dict(d) for d in s.open_tabs if isinstance(d, dict)]

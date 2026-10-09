@@ -50,6 +50,20 @@ def _session(key: int) -> TerminalSession | None:
     return session
 
 
+def release_relay() -> None:
+    """Disconnect and delete the relay (only at application exit)."""
+    global _relay
+    relay, _relay = _relay, None
+    _sessions.clear()
+    if relay is not None and shiboken6.isValid(relay):
+        for signal in (relay.data, relay.state, relay.closed):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        relay.deleteLater()
+
+
 def _get_relay() -> _Relay:
     global _relay
     if _relay is None:  # created on the GUI thread (first TerminalSession)

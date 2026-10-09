@@ -102,7 +102,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     window.show()
     code = app.exec()
     log.info("%s exiting (%s)", __app_name__, code)
-    return code
+    # Settings are saved in MainWindow.closeEvent; leave without Python tearing Qt down
+    # in random order (that crashed at exit on Linux/macOS).
+    from ssh_terminal.ui.lifecycle import hard_exit
+
+    hard_exit(code)
+    return code  # not reached
 
 
 if __name__ == "__main__":

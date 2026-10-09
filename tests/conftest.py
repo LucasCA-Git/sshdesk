@@ -73,3 +73,29 @@ def ssh_config(isolated_home: Path) -> Path:
     path = isolated_home / ".ssh" / "config"
     path.write_text(SAMPLE_CONFIG, encoding="utf-8")
     return path
+
+
+# --------------------------------------------------------------------------- #
+# Qt teardown: the whole suite passes, but letting Python destroy Qt objects in
+# random order at interpreter exit crashed CI ("shared QObject was deleted
+# directly", SIGSEGV/SIGABRT after "N passed"). Release Qt deterministically
+# and exit with pytest's own status instead.
+# --------------------------------------------------------------------------- #
+_EXIT_STATUS: list[int] = []
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001
+    _EXIT_STATUS.append(int(exitstatus))
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config) -> None:  # noqa: ANN001
+    if "PySide6.QtWidgets" not in sys.modules or not _EXIT_STATUS:
+        return
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is None:
+        return
+    from ssh_terminal.ui.lifecycle import hard_exit
+
+    hard_exit(_EXIT_STATUS[-1])
