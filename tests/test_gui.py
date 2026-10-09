@@ -165,7 +165,9 @@ def test_terminal_widget_input(qapp) -> None:
     w.resize(400, 200)
     sent: list[bytes] = []
     w.input_ready.connect(sent.append)
-    QApplication.sendEvent(w, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier, "\x03"))
+    # the physical Control key: Qt calls it Meta on macOS (Control there is ⌘)
+    control = Qt.KeyboardModifier.MetaModifier if sys.platform == "darwin" else Qt.KeyboardModifier.ControlModifier
+    QApplication.sendEvent(w, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_C, control, "\x03"))
     QApplication.sendEvent(w, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier, "\t"))
     assert sent == [b"\x03", b"\t"]
     w.feed(b"hello\r\nworld")

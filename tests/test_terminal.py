@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 from PySide6.QtCore import Qt
 
 from ssh_terminal.terminal.color_schemes import SCHEMES, get_scheme
-from ssh_terminal.terminal.keymap import key_to_bytes
+from ssh_terminal.terminal.keymap import key_to_bytes as _key_to_bytes
 from ssh_terminal.terminal.terminal_emulator import TerminalEmulator
+
+# xterm mapping with Ctrl = the Control key (as on Windows/Linux); macOS is covered by
+# test_macos_control_and_command_keys, where Qt reports the Control key as Meta.
+key_to_bytes = partial(_key_to_bytes, mac=False)
 
 NO = Qt.KeyboardModifier.NoModifier
 CTRL = Qt.KeyboardModifier.ControlModifier
