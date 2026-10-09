@@ -172,6 +172,7 @@ No app, use *Account › Create Account / Sign In* com a URL do seu servidor. A 
 
 - **Times e papéis** (owner / admin / member), com **convite por email + código de uso único**.
 - **Compartilhar um host** (botão direito › *Share with Team*), escolhendo o grupo, ou **um grupo inteiro** (botão direito no título do grupo).
+- Qualquer pessoa pode **tirar um host do time só da própria lista** (continua no time para os outros e dá para restaurar); admins podem remover para todos.
 - Os membros veem seções `TEAM · DEVOPS › HML`, e os hosts funcionam também no `ssh`/`scp`/`git` comum, porque são escritos num arquivo gerenciado incluído com `Include`. Em caso de nome repetido, o host pessoal sempre vence.
 - **Nunca compartilhado:** chaves privadas, senhas, `ProxyCommand` ou qualquer opção que execute comandos na máquina dos membros. O servidor **e** o app aplicam a allow-list.
 

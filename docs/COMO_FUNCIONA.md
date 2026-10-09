@@ -633,6 +633,9 @@ Consequências:
 | Botão direito no **título de um grupo** › *Share Group with Team* | publica todos os hosts do grupo de uma vez, com o nome do grupo; os que já existem no time são atualizados |
 | Botão direito num host do time | *Edit in Team* / *Remove from Team* (admin) ou *Managed by team* (membro); *Duplicate as Personal Host* para ter uma cópia sua |
 | *Account › Sync Team Hosts* | força o sync (também roda ao abrir e a cada 5 min) |
+| Botão direito num host do time › *Remove from My List* (ou tecla Del) | tira o host **só da sua lista** (e do arquivo do time na sua máquina); ele continua no time para os outros. Fica guardado em `teams/teams.json` (`hidden_hosts`) e nunca vai para o servidor |
+| Botão direito no título do time › *Restore…* ou *Account › Restore Removed Team Hosts (N)* | traz de volta os hosts que você removeu da sua lista |
+| *Remove from Team (everyone)…* (admin) | apaga do servidor, some para todos no próximo sync |
 
 ### Código
 

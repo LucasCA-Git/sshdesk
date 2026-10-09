@@ -170,6 +170,7 @@ In the app, use *Account › Create Account / Sign In* with your server URL. Aft
 
 - **Teams and roles** (owner / admin / member), with **invites by email + one-time code**.
 - **Share a host** (right-click › *Share with Team*), choosing the group, or **share a whole group** (right-click the group title).
+- Anyone can **remove a team host from their own list** (it stays in the team for others, restorable anytime); admins can remove it for everyone.
 - Members see `TEAM · DEVOPS › HML` sections, and the hosts also work in plain `ssh`/`scp`/`git`, because they are written to a managed file pulled in with `Include`. Your personal hosts always win on name conflicts.
 - **Never shared:** private keys, passwords, `ProxyCommand` or any option that could run commands on members' machines. The allow-list is enforced by the server *and* by the app.
 

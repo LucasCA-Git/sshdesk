@@ -91,6 +91,7 @@ class SyncResult:
     rejected: list[str] = field(default_factory=list)  # hosts refused by local validation
     unchanged: bool = False
     include_added: bool = False
+    hidden: int = 0  # team hosts this user removed from their own list
 
 
 # ---------------------------------------------------------------------- #
@@ -273,6 +274,7 @@ class TeamService:
         self._token: str | None = None
         self._etag: str | None = None
         self.host_groups: dict[str, str] = {}  # team host alias -> group name (from the last sync)
+        self.hidden_hosts: set[str] = set()  # "team-slug/alias" removed by this user from their own list
         self._load_state()
 
     # -- persistence of non-secret state ---------------------------------- #
@@ -290,6 +292,47 @@ class TeamService:
         groups = data.get("host_groups")
         if isinstance(groups, dict):
             self.host_groups = {str(k): str(v) for k, v in groups.items()}
+        hidden = data.get("hidden_hosts")
+        if isinstance(hidden, list):
+            self.hidden_hosts = {str(x) for x in hidden}
+
+    # -- hosts removed from "my list" (local only, never sent to the server) -- #
+    @staticmethod
+    def _hidden_key(slug: str, alias: str) -> str:
+        return f"{slug}/{alias_key(alias)}"
+
+    def is_hidden(self, slug: str, alias: str) -> bool:
+        return self._hidden_key(slug, alias) in self.hidden_hosts
+
+    def hide_host(self, team: TeamInfo, alias: str, writer: ConfigFileWriter | None = None) -> None:
+        """Remove a team host from this user's list (and from the managed config file right away)."""
+        self.hidden_hosts.add(self._hidden_key(team.slug, alias))
+        self._save_state()
+        path = self.team_file(team.slug)
+        if path.exists():
+            from ssh_terminal.ssh import config_writer
+
+            doc = SSHConfigDocument.load(path)
+            block = next((b for b in doc.host_blocks() if alias_key(alias) in {alias_key(p) for p in b.patterns}), None)
+            if block is not None:
+                config_writer.remove_host(doc, block.patterns[0])
+                path.write_text(doc.render(), encoding="utf-8")
+
+    def hidden_count(self, team: TeamInfo | None = None) -> int:
+        if team is None:
+            return len(self.hidden_hosts)
+        return sum(1 for k in self.hidden_hosts if k.startswith(f"{team.slug}/"))
+
+    def restore_hidden(self, team: TeamInfo | None = None) -> int:
+        """Bring hidden team hosts back (on the next sync). Returns how many were restored."""
+        before = len(self.hidden_hosts)
+        if team is None:
+            self.hidden_hosts.clear()
+        else:
+            self.hidden_hosts = {k for k in self.hidden_hosts if not k.startswith(f"{team.slug}/")}
+        self._etag = None  # force a full download
+        self._save_state()
+        return before - len(self.hidden_hosts)
 
     def group_of(self, alias: str) -> str:
         """Group a team host was shared under ("" = none)."""
@@ -302,6 +345,7 @@ class TeamService:
             "teams": [t.__dict__ for t in self.teams],
             "etag": self._etag,
             "host_groups": self.host_groups,
+            "hidden_hosts": sorted(self.hidden_hosts),
         }
         self.state_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -362,6 +406,7 @@ class TeamService:
         self.teams = []
         self._etag = None
         self.host_groups = {}
+        self.hidden_hosts = set()
         self.clear_team_files()
         self._save_state()
 
@@ -506,6 +551,9 @@ class TeamService:
                 error = validate_remote_host(host)
                 if error:
                     result.rejected.append(f"{host.get('alias', '?')} ({team['name']}): {error}")
+                    continue
+                if self.is_hidden(team["slug"], host["alias"]):
+                    result.hidden += 1
                     continue
                 reason = self._duplicate_reason(host, own_aliases, own_servers, seen_aliases, accepted)
                 if reason is not None:

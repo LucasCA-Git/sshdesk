@@ -157,3 +157,35 @@ def test_sync_never_duplicates_hosts(server: str, isolated_home: Path, tmp_path:
     assert result.hosts_written == 2 and len(result.conflicts) == 3
     assert ("api-dev (Dev): same server as “api” from team “Infra”" in joined
             or "api (Infra): same server as “api-dev” from team “Dev”" in joined)
+
+
+def test_member_removes_team_host_from_own_list(server: str, isolated_home: Path, tmp_path: Path) -> None:
+    cfg = isolated_home / ".ssh" / "config"
+    cfg.write_text("Host *\n    ServerAliveInterval 60\n")
+    writer = ConfigFileWriter(tmp_path / "backups")
+    owner = TeamService(MemoryCreds(), tmp_path / "owner")
+    owner.register(server, "hide-owner@example.com", "password-123")
+    team = owner.create_team("Ops")
+    owner.save_host(team.id, host_to_payload(SSHHost(alias="keep", hostname="10.1.0.1")))
+    owner.save_host(team.id, host_to_payload(SSHHost(alias="noise", hostname="10.1.0.2")))
+    invite = owner.invite(team.id, "hide-member@example.com")
+    creds = MemoryCreds()
+    member = TeamService(creds, tmp_path / "member")
+    member.register(server, "hide-member@example.com", "password-123")
+    info = member.accept_invite(invite["code"])
+    member.sync(cfg, writer)
+
+    def aliases() -> set[str]:
+        return {h.alias for h in SSHConfigSet.load(cfg).concrete_hosts()}
+
+    assert aliases() == {"keep", "noise"}
+    member.hide_host(info, "NOISE")  # any case; removed from the managed file right away
+    assert aliases() == {"keep"} and member.hidden_count() == 1
+    again = member.sync(cfg, writer, force=True)
+    assert again.hidden == 1 and aliases() == {"keep"}
+    # survives a restart, never reaches the server (the owner still has both)
+    assert TeamService(creds, tmp_path / "member").is_hidden("ops", "noise")
+    assert {h["alias"] for h in owner.team_hosts(team.id)} == {"keep", "noise"}
+    assert member.restore_hidden() == 1
+    member.sync(cfg, writer)
+    assert aliases() == {"keep", "noise"}

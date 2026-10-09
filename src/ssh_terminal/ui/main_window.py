@@ -254,6 +254,7 @@ class MainWindow(QMainWindow):
         a("create_account", "Create Account…", lambda: self.sign_in(create=True))
         a("teams", "Teams…", self.open_teams)
         a("sync_teams", "Sync Team Hosts", lambda: self.sync_teams(force=True))
+        a("restore_team_hosts", "Restore Removed Team Hosts", lambda: self.restore_team_hosts())
         a("sign_out", "Sign Out", self.sign_out)
 
     def _build_menus(self) -> None:
@@ -312,7 +313,7 @@ class MainWindow(QMainWindow):
         for key in ("sign_in", "create_account"):
             account_menu.addAction(acts[key])
         account_menu.addSeparator()
-        for key in ("teams", "sync_teams"):
+        for key in ("teams", "sync_teams", "restore_team_hosts"):
             account_menu.addAction(acts[key])
         account_menu.addSeparator()
         account_menu.addAction(acts["sign_out"])
@@ -350,6 +351,8 @@ class MainWindow(QMainWindow):
         sb.share_group_requested.connect(self.share_group)
         sb.team_edit_requested.connect(self.edit_team_host)
         sb.team_delete_requested.connect(self.delete_team_host)
+        sb.team_hide_requested.connect(self.hide_team_host)
+        sb.team_restore_requested.connect(self.restore_team_hosts)
         sb.git_test_requested.connect(self.test_git_host)
         sb.copy_git_remote_requested.connect(self.copy_git_remote)
         sb.new_requested.connect(self.new_connection)
@@ -682,8 +685,22 @@ class MainWindow(QMainWindow):
             self.edit_connection(self.sidebar.selected_alias())
 
     def delete_connection(self, alias: str) -> None:
-        if self._team_of_alias(alias) is not None:
-            self.delete_team_host(alias)
+        team = self._team_of_alias(alias)
+        if team is not None:  # Delete key / menu on a team host
+            if not team.can_edit:
+                self.hide_team_host(alias)
+                return
+            box = QMessageBox(QMessageBox.Icon.Question, "Remove team host",
+                              f"“{alias}” is shared by team “{team.name}”.", parent=self)
+            box.setInformativeText("Remove it only from your list, or from the team for everyone?")
+            mine = box.addButton("Only from My List", QMessageBox.ButtonRole.AcceptRole)
+            everyone = box.addButton("From the Team (everyone)", QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is mine:
+                self.hide_team_host(alias, ask=False)
+            elif box.clickedButton() is everyone:
+                self.delete_team_host(alias)
             return
         if not confirm(
             self,
@@ -1302,6 +1319,9 @@ class MainWindow(QMainWindow):
             self._actions[key].setVisible(not signed)
         for key in ("teams", "sync_teams", "sign_out"):
             self._actions[key].setVisible(signed)
+        hidden = teams.hidden_count() if signed else 0
+        self._actions["restore_team_hosts"].setVisible(hidden > 0)
+        self._actions["restore_team_hosts"].setText(f"Restore Removed Team Hosts ({hidden})")
         if signed and teams.account:
             count = len(teams.teams)
             self.status_account.setText(f"👤 {teams.account.email} · {count} team{'s' if count != 1 else ''}")
@@ -1356,6 +1376,8 @@ class MainWindow(QMainWindow):
                 message += f" — skipped duplicates: {'; '.join(result.conflicts)}"
             if result.rejected:
                 message += f" — rejected as unsafe: {', '.join(result.rejected)}"
+            if result.hidden:
+                message += f" — {result.hidden} removed from your list (Account › Restore)"
             if not (quiet and result.unchanged):
                 self.statusBar().showMessage(message, 8000)
 
@@ -1496,6 +1518,35 @@ class MainWindow(QMainWindow):
 
         run_async(save, on_done=lambda _r: self.sync_teams(force=True),
                   on_error=lambda e: show_error(self, FriendlyError("Could not update team host", str(e))), name="team-edit")
+
+    def hide_team_host(self, alias: str, ask: bool = True) -> None:
+        """Remove a team host from MY list only (kept in the team; restorable)."""
+        team = self._team_of_alias(alias)
+        if team is None:
+            return
+        if ask and not confirm(self, "Remove from my list",
+                               f"Remove “{alias}” from your list?\n\nIt stays in team “{team.name}” for everyone else. "
+                               "You can bring it back with right-click on the team section › Restore.", "Remove"):
+            return
+        try:
+            self.ctx.teams.hide_host(team, alias)
+        except (OSError, ConfigError) as exc:
+            show_error(self, describe_exception(exc))
+            return
+        self.settings.forget_alias(alias)
+        self.save_settings()
+        self.reload_config()
+        self.statusBar().showMessage(f"“{alias}” removed from your list (still in team “{team.name}”).", 6000)
+
+    def restore_team_hosts(self, slug: str = "") -> None:
+        teams = self.ctx.teams
+        team = next((t for t in teams.teams if t.slug == slug), None) if slug else None
+        restored = teams.restore_hidden(team)
+        if not restored:
+            self.statusBar().showMessage("No removed team hosts to restore.", 5000)
+            return
+        self.statusBar().showMessage(f"Restoring {restored} team host(s)…", 5000)
+        self.sync_teams(force=True)
 
     def delete_team_host(self, alias: str) -> None:
         team = self._team_of_alias(alias)

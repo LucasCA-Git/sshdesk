@@ -583,3 +583,18 @@ def test_sidebar_never_lists_a_host_twice(window, qapp, isolated_home: Path) -> 
              for j in range(tree.topLevelItem(i).childCount())
              if tree.topLevelItem(i).text(0) == "HOSTS"]
     assert names.count("server-hml") == 1
+
+
+def test_delete_key_on_team_host_removes_it_from_my_list(window, qapp, monkeypatch) -> None:
+    import ssh_terminal.ui.main_window as mw
+    from ssh_terminal.services.team_service import TeamInfo
+
+    member = TeamInfo(3, "devops", "devops", "member")
+    hidden: list[str] = []
+    monkeypatch.setattr(window, "_team_of_alias", lambda alias: member if alias == "server-hml" else None)
+    monkeypatch.setattr(window.ctx.teams, "hide_host", lambda team, alias, writer=None: hidden.append(f"{team.slug}/{alias}"))
+    monkeypatch.setattr(mw, "confirm", lambda *a, **k: True)
+    removed_from_config: list[str] = []
+    monkeypatch.setattr(window.ctx.config, "remove_host", lambda alias: removed_from_config.append(alias))
+    window.delete_connection("server-hml")  # member: never touches the team or the personal config
+    assert hidden == ["devops/server-hml"] and removed_from_config == []

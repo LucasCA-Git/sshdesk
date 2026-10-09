@@ -158,6 +158,8 @@ class ConnectionPanel(QWidget):
     share_requested = Signal(str, int)  # alias, team id
     team_edit_requested = Signal(str)
     team_delete_requested = Signal(str)
+    team_hide_requested = Signal(str)  # alias: remove a team host from my list only
+    team_restore_requested = Signal(str)  # team slug: bring hidden hosts back
     split_view_requested = Signal(list)  # aliases
     share_group_requested = Signal(str, int)  # group name, team id
     open_split_requested = Signal(str, str)  # alias, "right" | "down" (next to the current terminal)
@@ -456,6 +458,10 @@ class ConnectionPanel(QWidget):
         menu = QMenu(self)
         if item is None or item.data(0, ROLE_KIND) == KIND_SECTION:
             key = item.data(0, ROLE_SECTION) if item is not None else ""
+            if isinstance(key, str) and key.startswith("team:"):
+                slug = key.split(":")[1]
+                menu.addAction("Restore Hosts Removed from My List", lambda s=slug: self.team_restore_requested.emit(s))
+                menu.addSeparator()
             if isinstance(key, str) and key.startswith("group:") and self._editable_teams:
                 group = key.removeprefix("group:")
                 count = item.childCount()
@@ -542,8 +548,11 @@ class ConnectionPanel(QWidget):
         menu.addAction(icon("file"), "Open Config", lambda: self.open_config_requested.emit(alias))
         menu.addSeparator()
         if team_name:
+            menu.addAction(icon("x", current_palette().danger), "Remove from My List",
+                           lambda: self.team_hide_requested.emit(alias))
             if item.data(0, ROLE_TEAM_EDIT):
-                menu.addAction(icon("x", current_palette().danger), "Remove from Team", lambda: self.team_delete_requested.emit(alias))
+                menu.addAction(icon("x", current_palette().danger), "Remove from Team (everyone)…",
+                               lambda: self.team_delete_requested.emit(alias))
         else:
             menu.addAction(icon("x", current_palette().danger), "Delete", lambda: self.delete_requested.emit(alias))
         menu.exec(self.tree.viewport().mapToGlobal(pos))

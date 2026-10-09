@@ -15,6 +15,7 @@ Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 - Share a whole group with your team, and pick the group when sharing a single host. Team members see the same groups.
 - The hosts sidebar has a grip: drag it to resize, collapse it to the edge and pull it back anytime.
 - "What's New" window, shown once after each update (also in Help › What's New).
+- Remove team hosts from your own list (right-click › Remove from My List, or the Delete key). They stay in the team for everyone else and can be restored anytime (Account › Restore Removed Team Hosts). Admins can still remove a host from the team for everyone.
 
 ### Improved
 - New Termius-like look: terminal cards, pill tabs and a calmer dark palette.
