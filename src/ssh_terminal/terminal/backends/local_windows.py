@@ -12,12 +12,16 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 
 from ssh_terminal.errors import BackendError
 from ssh_terminal.models.connection import SessionState
 from ssh_terminal.terminal.backends.base import CloseInfo, TerminalBackend
+from ssh_terminal.utils.platform import describe_exit_status
 
 log = logging.getLogger(__name__)
+
+QUICK_EXIT_SECONDS = 3.0  # a shell that dies this fast without output never really started
 
 
 class WinPtyBackend(TerminalBackend):
@@ -30,12 +34,14 @@ class WinPtyBackend(TerminalBackend):
         self.env = env
         self.proc = None
         self._lock = threading.Lock()
+        self._dims = (24, 80)
+        self._fallback_tried = False
 
     @property
     def description(self) -> str:
         return os.path.basename(self.argv[0]) if self.argv else "shell"
 
-    def start(self, cols: int, rows: int) -> None:
+    def _spawn(self, legacy: bool = False):  # noqa: ANN202 - winpty.PtyProcess
         try:
             from winpty import PtyProcess
         except ImportError as exc:
@@ -44,17 +50,26 @@ class WinPtyBackend(TerminalBackend):
             ) from exc
         env = dict(self.env or os.environ)
         env.setdefault("TERM_PROGRAM", "SSHDesk")
-        self.emit_state(SessionState.CONNECTING, f"Starting {self.description}")
+        kwargs = {}
+        if legacy:  # the old WinPTY agent instead of ConPTY
+            from winpty import Backend
+
+            kwargs["backend"] = Backend.WinPTY
         try:
-            self.proc = PtyProcess.spawn(self.argv, cwd=self.cwd, env=env, dimensions=(rows, cols))
+            return PtyProcess.spawn(self.argv, cwd=self.cwd, env=env, dimensions=self._dims, **kwargs)
         except Exception as exc:  # noqa: BLE001 - winpty raises generic errors
             raise BackendError(f"Could not start {self.description}: {exc}") from exc
+
+    def start(self, cols: int, rows: int) -> None:
+        self._dims = (max(rows, 2), max(cols, 10))
+        self.emit_state(SessionState.CONNECTING, f"Starting {self.description}")
+        self.proc = self._spawn()
         self.emit_state(SessionState.CONNECTED, self.description)
         threading.Thread(target=self._read_loop, name="conpty-reader", daemon=True).start()
 
-    def _read_loop(self) -> None:
-        proc = self.proc
-        assert proc is not None
+    def _pump(self, proc) -> bool:  # noqa: ANN001
+        """Copy output until the process ends. Returns True if anything was printed."""
+        got_output = False
         while True:
             try:
                 data = proc.read(65536)
@@ -69,13 +84,42 @@ class WinPtyBackend(TerminalBackend):
                 continue
             if isinstance(data, str):
                 data = data.encode("utf-8", errors="replace")
+            got_output = True
             self.emit_data(data)
-        status = getattr(proc, "exitstatus", None)
+        return got_output
+
+    def _read_loop(self) -> None:
+        while True:
+            proc = self.proc
+            assert proc is not None
+            started = time.monotonic()
+            got_output = self._pump(proc)
+            status = getattr(proc, "exitstatus", None)
+            quick = time.monotonic() - started < QUICK_EXIT_SECONDS and not got_output
+            if self.user_closed or not quick or status in (0, None) or self._fallback_tried:
+                break
+            # ConPTY killed the shell before it printed anything (seen as 0xC000013A on some
+            # machines): try once more with the WinPTY agent.
+            self._fallback_tried = True
+            log.warning("%s exited immediately (%s); retrying with WinPTY", self.description, describe_exit_status(status))
+            try:
+                new = self._spawn(legacy=True)
+            except (BackendError, ImportError, AttributeError, TypeError) as exc:
+                log.info("WinPTY fallback unavailable: %s", exc)
+                break
+            with self._lock:
+                self.proc = new
+            if self.user_closed:  # tab closed while the fallback was starting
+                self.close()
+                break
         self.emit_state(SessionState.DISCONNECTED, "Process exited")
         if self.user_closed:
             self.emit_closed(CloseInfo("Closed by user"))
         else:
-            self.emit_closed(CloseInfo(f"Process exited (status {status})", exit_status=status))
+            message = describe_exit_status(status)
+            if quick and status not in (0, None):
+                message += f" — {self.description} closed right after starting; try another shell from the Local Terminal menu"
+            self.emit_closed(CloseInfo(message, exit_status=status))
 
     def write(self, data: bytes) -> None:
         proc = self.proc
@@ -88,6 +132,7 @@ class WinPtyBackend(TerminalBackend):
                 log.info("ConPTY write failed: %s", exc)
 
     def resize(self, cols: int, rows: int) -> None:
+        self._dims = (max(rows, 2), max(cols, 10))
         proc = self.proc
         if proc is None:
             return

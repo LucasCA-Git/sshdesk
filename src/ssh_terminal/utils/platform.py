@@ -66,6 +66,54 @@ class ShellProfile:
         return self.name.lower()
 
 
+def parse_wsl_distros(raw: bytes) -> list[str]:
+    """Names from ``wsl.exe -l -q`` (UTF-16LE on most Windows builds), Docker's internal ones skipped."""
+    text = raw.decode("utf-16-le", errors="ignore") if b"\x00" in raw else raw.decode("utf-8", errors="ignore")
+    names = [line.strip().strip("﻿\x00") for line in text.splitlines()]
+    return [n for n in names if n and not n.lower().startswith("docker-desktop")]
+
+
+def _wsl_distros(wsl: str) -> list[str]:
+    import subprocess
+
+    try:
+        out = subprocess.run(  # noqa: S603 - fixed argv
+            [wsl, "-l", "-q"], capture_output=True, timeout=4,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_wsl_distros(out.stdout) if out.returncode == 0 else []
+
+
+def _find_git_bash() -> str | None:
+    git = shutil.which("git.exe")
+    candidates = [Path(git).resolve().parent.parent / "bin" / "bash.exe"] if git else []
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), os.environ.get("LOCALAPPDATA")):
+        if base:
+            candidates += [Path(base) / "Git" / "bin" / "bash.exe", Path(base) / "Programs" / "Git" / "bin" / "bash.exe"]
+    return next((str(c) for c in candidates if c.is_file()), None)
+
+
+def describe_exit_status(status: int | None) -> str:
+    """Human text for a process exit code, including Windows NTSTATUS values."""
+    if status is None:
+        return "Process exited"
+    code = status & 0xFFFFFFFF
+    known = {
+        0xC000013A: "the console was closed or interrupted (Ctrl+C)",
+        0xC0000005: "it crashed (access violation)",
+        0xC0000135: "a required DLL was not found",
+        0xC0000142: "it failed to initialize",
+        0xC00000FD: "stack overflow",
+    }
+    if code in known:
+        return f"Process exited: {known[code]} (0x{code:08X})"
+    if code >= 0xC0000000:
+        return f"Process exited with error 0x{code:08X}"
+    return f"Process exited (status {status})"
+
+
 def detect_local_shells() -> list[ShellProfile]:
     """Detect the interactive shells available on this machine.
 
@@ -81,9 +129,14 @@ def detect_local_shells() -> list[ShellProfile]:
             profiles.append(ShellProfile("Windows PowerShell", [powershell, "-NoLogo"]))
         cmd = os.environ.get("COMSPEC") or shutil.which("cmd.exe") or "cmd.exe"
         profiles.append(ShellProfile("Command Prompt", [cmd]))
+        git_bash = _find_git_bash()
+        if git_bash:
+            profiles.append(ShellProfile("Git Bash", [git_bash, "--login", "-i"]))
         wsl = shutil.which("wsl.exe")
         if wsl:
-            profiles.append(ShellProfile("WSL", [wsl]))
+            distros = _wsl_distros(wsl)
+            profiles.append(ShellProfile("WSL", [wsl]))  # the default distribution
+            profiles.extend(ShellProfile(f"WSL · {name}", [wsl, "-d", name]) for name in distros)
         return profiles
 
     seen: set[str] = set()
