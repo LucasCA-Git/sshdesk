@@ -69,6 +69,16 @@ Common types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, 
 
 Users see the **What's New** window with the new notes the first time they open the new version.
 
+## Building the apps
+
+PyInstaller does not cross-compile, so each OS builds its own app (CI does all of them on every push):
+
+| OS | Command | Output |
+|---|---|---|
+| Windows | `scripts\build_windows.ps1` | `dist\SSHDesk.exe` |
+| Linux | `scripts/build_linux.sh` | `dist/SSHDesk` |
+| macOS | `scripts/build_macos.sh` | `dist/SSHDesk.app` + `dist/SSHDesk-<version>-macos-<arch>.dmg` |
+
 ## Code of conduct
 
 This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). Be kind and assume good intent.

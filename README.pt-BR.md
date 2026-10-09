@@ -4,7 +4,7 @@
 
 # SSHDesk
 
-**Cliente SSH gratuito e open source para Windows e Linux que usa o seu `~/.ssh/config` como fonte da verdade.**
+**Cliente SSH gratuito e open source para Windows, macOS e Linux que usa o seu `~/.ssh/config` como fonte da verdade.**
 
 Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP com arrastar e soltar e compartilhamento em equipe no seu próprio servidor.
 
@@ -12,7 +12,7 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 [![Release](https://img.shields.io/github/v/release/LucasCA-Git/sshdesk?sort=semver)](https://github.com/LucasCA-Git/sshdesk/releases)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-green.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
-![Plataformas](https://img.shields.io/badge/plataforma-Windows%20%7C%20Linux-lightgrey.svg)
+![Plataformas](https://img.shields.io/badge/plataforma-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 [Recursos](#recursos) · [Download](#download) · [Começando](#começando) · [Times](#compartilhamento-em-equipe-self-hosted) · [Arquitetura](#arquitetura) · [Guia completo](docs/COMO_FUNCIONA.md) · [Changelog](CHANGELOG.md) · [🇺🇸 English](README.md)
 
@@ -75,9 +75,18 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 
 ## Download
 
-Executáveis prontos para **Windows** e **Linux** ficam na [página de Releases](https://github.com/LucasCA-Git/sshdesk/releases). Eles também são gerados a cada push no [GitHub Actions](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml) (em *Artifacts*).
+Os apps prontos ficam na [página de Releases](https://github.com/LucasCA-Git/sshdesk/releases) e também são gerados a cada push no [GitHub Actions](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml) (em *Artifacts*):
 
-> O executável do Windows ainda não é assinado. Se o SmartScreen avisar, clique em *Mais informações › Executar assim mesmo*.
+| Sistema | Arquivo | Como instalar |
+|---|---|---|
+| Windows 10/11 | `SSHDesk.exe` | é só executar |
+| macOS 12+ · Apple Silicon (M1–M4) | `SSHDesk-<versão>-macos-arm64.dmg` | abra o `.dmg` e arraste o **SSHDesk** para *Aplicativos* |
+| macOS 12+ · Intel | `SSHDesk-<versão>-macos-x86_64.dmg` | igual |
+| Linux (x86_64) | `SSHDesk` | `chmod +x SSHDesk && ./SSHDesk` |
+
+> Os builds ainda não são assinados.
+> **Windows:** se o SmartScreen avisar, clique em *Mais informações › Executar assim mesmo*.
+> **macOS:** na primeira vez, clique com o botão direito no **SSHDesk** em *Aplicativos* › **Abrir** › **Abrir** (ou rode `xattr -dr com.apple.quarantine /Applications/SSHDesk.app`). Depois disso abre normalmente.
 
 ## Começando
 
@@ -150,12 +159,13 @@ sshdesk --debug                # log detalhado
 | Broadcast input na aba | `Ctrl+Shift+I` |
 | Mostrar / esconder hosts | `Ctrl+Shift+B` (ou arraste / dois cliques na alça) |
 | Painel de temas | `Ctrl+Shift+A` |
-| Copiar / colar | `Ctrl+Shift+C` / `Ctrl+Shift+V` |
+| Copiar / colar | `Ctrl+Shift+C` / `Ctrl+Shift+V` (macOS: `⌘C` / `⌘V`) |
 | Buscar conexões / nova conexão | `Ctrl+Shift+F` / `Ctrl+Shift+N` |
 | Fonte maior / menor / padrão | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
 | Recarregar SSH config / tela cheia / settings | `F5` / `F11` / `Ctrl+,` |
 
 Todos os atalhos podem ser trocados em *Settings › Keyboard*. Teclas que não são atalho vão para o terminal (Ctrl+C, Ctrl+D, Ctrl+L…).
+**macOS:** os atalhos do app usam **⌘** no lugar do Ctrl (⌘T, ⌘W…), e a tecla **Control** vai para o terminal normalmente (Control+C interrompe, Control+R busca no histórico). ⌘C, ⌘V, ⌘A e ⌘K copiam, colam, selecionam tudo e limpam o terminal.
 **Dica:** `Ctrl+W` também é "apagar palavra" no bash; se você usa muito, troque "Close tab" para `Ctrl+Shift+W`.
 
 ## Compartilhamento em equipe (self-hosted)
@@ -324,14 +334,14 @@ O CI (GitHub Actions) roda lint, testes e o build PyInstaller em **Windows e Lin
 - [ ] Arrastar do painel remoto direto para o Explorer
 - [ ] "Quem está online" nos times e SSO (OIDC) no servidor
 - [ ] Criptografia ponta a ponta dos hosts do time
-- [ ] Build para macOS
+- [ ] Builds de macOS assinados e notarizados (Apple Developer ID)
 
 ## Limitações conhecidas
 
 - X11 forwarding e `AddKeysToAgent` são gravados no config, mas o cliente embutido não os aplica.
 - Blocos `Match` só são avaliados quando o OpenSSH está disponível (`ssh -G`).
 - Mouse apenas no modo SGR (1006), o usado por vim, htop, tmux e mc.
-- macOS ainda não tem build oficial nem foi testado.
+- Os builds de macOS são novos: o CI gera para Apple Silicon e Intel, mas ainda sem assinatura/notarização. Reporte qualquer problema específico do Mac.
 
 ## Contribuindo
 

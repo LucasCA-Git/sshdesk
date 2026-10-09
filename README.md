@@ -4,7 +4,7 @@
 
 # SSHDesk
 
-**A free, open-source SSH client for Windows and Linux that treats your `~/.ssh/config` as the source of truth.**
+**A free, open-source SSH client for Windows, macOS and Linux that treats your `~/.ssh/config` as the source of truth.**
 
 Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and optional team sharing on your own server.
 
@@ -12,7 +12,7 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and o
 [![Release](https://img.shields.io/github/v/release/LucasCA-Git/sshdesk?sort=semver)](https://github.com/LucasCA-Git/sshdesk/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
-![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 ![Qt](https://img.shields.io/badge/UI-PySide6%20(Qt)-41cd52.svg)
 
 [Features](#features) · [Download](#download) · [Quick start](#quick-start) · [Teams](#team-sharing-self-hosted) · [Architecture](#architecture) · [Docs](docs/COMO_FUNCIONA.md) · [Changelog](CHANGELOG.md) · [🇧🇷 Português](README.pt-BR.md)
@@ -76,9 +76,18 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and o
 
 ## Download
 
-Pre-built executables for **Windows** and **Linux** are published on the [Releases page](https://github.com/LucasCA-Git/sshdesk/releases). Every push also builds them in [GitHub Actions](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml) (see *Artifacts*).
+Pre-built apps are published on the [Releases page](https://github.com/LucasCA-Git/sshdesk/releases). Every push also builds them in [GitHub Actions](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml) (see *Artifacts*):
 
-> The Windows build is not code-signed yet. If SmartScreen warns you, choose *More info › Run anyway*.
+| Platform | File | How to install |
+|---|---|---|
+| Windows 10/11 | `SSHDesk.exe` | run it |
+| macOS 12+ · Apple Silicon (M1–M4) | `SSHDesk-<version>-macos-arm64.dmg` | open the `.dmg`, drag **SSHDesk** to *Applications* |
+| macOS 12+ · Intel | `SSHDesk-<version>-macos-x86_64.dmg` | same |
+| Linux (x86_64) | `SSHDesk` | `chmod +x SSHDesk && ./SSHDesk` |
+
+> The builds are not code-signed yet.
+> **Windows:** if SmartScreen warns you, choose *More info › Run anyway*.
+> **macOS:** the first time, right-click **SSHDesk** in *Applications* › **Open** › **Open** (or run `xattr -dr com.apple.quarantine /Applications/SSHDesk.app`). After that it opens normally.
 
 ## Quick start
 
@@ -149,12 +158,14 @@ sshdesk --debug                # verbose logging
 | Broadcast input to the tab | `Ctrl+Shift+I` |
 | Show / hide hosts sidebar | `Ctrl+Shift+B` (or drag / double-click the grip) |
 | Themes panel | `Ctrl+Shift+A` |
-| Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V` |
+| Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V` (macOS: `⌘C` / `⌘V`) |
 | Search connections / new connection | `Ctrl+Shift+F` / `Ctrl+Shift+N` |
 | Font bigger / smaller / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
 | Reload SSH config / fullscreen / settings | `F5` / `F11` / `Ctrl+,` |
 
 All shortcuts can be changed in *Settings › Keyboard*. Keys that are not shortcuts go to the terminal (Ctrl+C, Ctrl+D, Ctrl+L…).
+
+**macOS:** app shortcuts use **⌘** instead of Ctrl (⌘T, ⌘W, ⌘⇧\\…), while the **Control** key goes to the terminal as usual (Control+C interrupts, Control+R searches history). ⌘C, ⌘V, ⌘A and ⌘K copy, paste, select all and clear the terminal.
 
 ## Team sharing (self-hosted)
 
@@ -268,7 +279,7 @@ Contributions are welcome! Read [CONTRIBUTING.md](CONTRIBUTING.md) to get starte
 - [ ] Drag files from a remote panel straight to Explorer
 - [ ] Team presence ("who is online") and SSO (OIDC) for the team server
 - [ ] End-to-end encryption of team host data
-- [ ] macOS build
+- [ ] Signed and notarized macOS builds (Apple Developer ID)
 
 Have an idea? [Open a feature request](https://github.com/LucasCA-Git/sshdesk/issues/new?template=feature_request.md).
 
@@ -277,7 +288,7 @@ Have an idea? [Open a feature request](https://github.com/LucasCA-Git/sshdesk/is
 - X11 forwarding and `AddKeysToAgent` are written to the config but not applied by the built-in client.
 - `Match` blocks are only evaluated when OpenSSH is available (`ssh -G`).
 - Mouse reporting supports SGR mode (1006), which vim, htop, tmux and mc use.
-- macOS is not officially built or tested yet.
+- macOS builds are new: they are produced by CI on Apple Silicon and Intel runners but not yet signed/notarized. Please report anything Mac-specific.
 
 ## Acknowledgements
 

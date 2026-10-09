@@ -735,7 +735,9 @@ pyinstaller --noconfirm --clean sshdesk.spec
 
 - No Windows gera `dist\SSHDesk.exe`. Há um script pronto: `scripts\build_windows.ps1`.
 - No Linux gera `dist/SSHDesk`. Há um script pronto: `scripts/build_linux.sh`.
-- O GitHub Actions (`.github/workflows/build.yml`) roda lint + testes e gera os dois a cada push.
+- No macOS gera `dist/SSHDesk.app`; `scripts/build_macos.sh` também monta o `.dmg` (arrastar para *Aplicativos*). O ícone PNG vira `.icns` pelo PyInstaller (precisa do Pillow, já no `requirements-dev.txt`).
+- O GitHub Actions (`.github/workflows/build.yml`) roda lint + testes e gera **Windows, Linux, macOS Apple Silicon (`macos-latest`) e macOS Intel (`macos-15-intel`)** a cada push. Os artefatos: `SSHDesk-Windows`, `SSHDesk-Linux`, `SSHDesk-macOS-arm64`, `SSHDesk-macOS-x86_64` (com o `.dmg`).
+- **Teclado no Mac:** o Qt chama a tecla ⌘ de "Control" e o Control de verdade de "Meta". O `terminal/keymap.py` (`terminal_modifiers`) desfaz a troca para o terminal: Control+C manda `^C`, e ⌘ fica só para os atalhos do app (⌘C/⌘V copiam e colam).
 
 ---
 
