@@ -6,6 +6,7 @@ Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 ## [1.1.0] - 2026-10-08
 
 ### New
+- macOS builds: a `.dmg` for Apple Silicon and one for Intel Macs, next to the Windows and Linux builds. On a Mac, app shortcuts use ⌘ and the Control key goes to the terminal (Control+C, Control+R…); ⌘C/⌘V copy and paste.
 - Split view with any host: put two different terminals side by side (or below) — another SSH host, a local shell or the same connection.
 - Broadcast input (Ctrl+Shift+I): type once and send it to every terminal of the tab.
 - Files (SFTP): browse this computer and your servers side by side, like a file manager.

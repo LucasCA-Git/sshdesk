@@ -15,6 +15,7 @@ import os
 import select
 import signal
 import struct
+import sys
 import threading
 import warnings
 
@@ -48,7 +49,8 @@ class UnixPtyBackend(TerminalBackend):
 
         env = dict(self.env or os.environ)
         env.update({"TERM": self.term_type, "COLORTERM": "truecolor", "TERM_PROGRAM": "SSHDesk"})
-        env.setdefault("LANG", "C.UTF-8")
+        # macOS has no C.UTF-8 locale; apps started from Finder get no LANG at all
+        env.setdefault("LANG", "en_US.UTF-8" if sys.platform == "darwin" else "C.UTF-8")
         self.emit_state(SessionState.CONNECTING, f"Starting {self.description}")
         try:
             with warnings.catch_warnings():

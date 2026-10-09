@@ -163,3 +163,22 @@ def test_color_schemes() -> None:
     assert s.color_for("ff8800", "#000") == "#ff8800"
     assert s.color_for("default", "#123456") == "#123456"
     assert get_scheme("nope").name == "Default Dark"
+
+
+def test_macos_control_and_command_keys() -> None:
+    """On macOS Qt reports the Control key as Meta and ⌘ as Control: the terminal must swap them back."""
+    from PySide6.QtCore import Qt
+
+    from ssh_terminal.terminal.keymap import key_to_bytes, terminal_modifiers
+
+    meta, ctrl = Qt.KeyboardModifier.MetaModifier, Qt.KeyboardModifier.ControlModifier
+    # physical Control+C on a Mac -> interrupt
+    assert key_to_bytes(Qt.Key.Key_C, meta, "", mac=True) == b"\x03"
+    assert key_to_bytes(Qt.Key.Key_D, meta, "", mac=True) == b"\x04"
+    # Control+Up keeps the xterm modifier parameter (5 = ctrl)
+    assert key_to_bytes(Qt.Key.Key_Up, meta, "", mac=True) == b"\x1b[1;5A"
+    # ⌘ is never a control key for the terminal
+    assert terminal_modifiers(ctrl, mac=True) == Qt.KeyboardModifier.NoModifier
+    # other platforms are untouched
+    assert key_to_bytes(Qt.Key.Key_C, ctrl, "", mac=False) == b"\x03"
+    assert terminal_modifiers(meta | ctrl, mac=False) == meta | ctrl

@@ -96,9 +96,13 @@ def detect_local_shells() -> list[ShellProfile]:
         except (ImportError, KeyError):
             preferred = None
     candidates = [preferred] if preferred else []
-    candidates += ["bash", "zsh", "fish", "sh"]
+    candidates += ["zsh", "bash", "fish", "sh"] if is_macos() else ["bash", "zsh", "fish", "sh"]
+    # Apps started from Finder/Dock get a minimal PATH: also look where Homebrew installs shells.
+    search = os.environ.get("PATH", "")
+    if is_macos():
+        search = os.pathsep.join([search, "/opt/homebrew/bin", "/usr/local/bin"])
     for candidate in candidates:
-        path = shutil.which(candidate) if candidate else None
+        path = shutil.which(candidate, path=search) if candidate else None
         if not path:
             continue
         real = os.path.realpath(path)

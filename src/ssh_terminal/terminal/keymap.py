@@ -6,7 +6,11 @@ Kept free of widget logic so it can be unit tested. ``key`` and
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import Qt
+
+IS_MAC = sys.platform == "darwin"
 
 ESC = "\x1b"
 
@@ -57,6 +61,26 @@ _CTRL_SYMBOLS = {
 }
 
 
+def terminal_modifiers(modifiers: Qt.KeyboardModifier, mac: bool = IS_MAC) -> Qt.KeyboardModifier:
+    """Modifiers as the terminal should see them.
+
+    On macOS Qt reports the ⌘ Command key as ``ControlModifier`` and the
+    physical Control key as ``MetaModifier``. In a terminal the *Control* key
+    must produce control characters (Ctrl+C, Ctrl+D…), while ⌘ is reserved for
+    app shortcuts (copy, paste, new tab…), so the two are mapped back here.
+    """
+    if not mac:
+        return modifiers
+    value = modifiers.value if hasattr(modifiers, "value") else int(modifiers)
+    ctrl = Qt.KeyboardModifier.ControlModifier.value
+    meta = Qt.KeyboardModifier.MetaModifier.value
+    physical_control = bool(value & meta)
+    value &= ~(ctrl | meta)
+    if physical_control:
+        value |= ctrl
+    return Qt.KeyboardModifier(value)
+
+
 def _modifier_param(modifiers: Qt.KeyboardModifier) -> int:
     """xterm modifier parameter: 1 + shift(1) + alt(2) + ctrl(4)."""
     value = 1
@@ -69,9 +93,11 @@ def _modifier_param(modifiers: Qt.KeyboardModifier) -> int:
     return value
 
 
-def key_to_bytes(key: int, modifiers: Qt.KeyboardModifier, text: str, app_cursor: bool = False) -> bytes | None:
+def key_to_bytes(key: int, modifiers: Qt.KeyboardModifier, text: str, app_cursor: bool = False,
+                 mac: bool = IS_MAC) -> bytes | None:
     """Return the bytes to send for a key press, or ``None`` if not handled."""
     key = Qt.Key(key)
+    modifiers = terminal_modifiers(modifiers, mac)
     ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
     alt = bool(modifiers & Qt.KeyboardModifier.AltModifier)
     shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)

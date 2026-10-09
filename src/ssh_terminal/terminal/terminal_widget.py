@@ -32,7 +32,7 @@ from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QWidget
 
 from ssh_terminal.models.app_settings import AppSettings, font_fallbacks
 from ssh_terminal.terminal.color_schemes import ANSI_NAMES, ColorScheme, get_scheme
-from ssh_terminal.terminal.keymap import key_to_bytes
+from ssh_terminal.terminal.keymap import IS_MAC, key_to_bytes
 from ssh_terminal.terminal.terminal_emulator import TerminalEmulator
 
 log = logging.getLogger(__name__)
@@ -553,6 +553,21 @@ class TerminalWidget(QAbstractScrollArea):
             return
         if shift_only and key == Qt.Key.Key_Insert:
             self.paste()
+            return
+        if IS_MAC and mods & Qt.KeyboardModifier.ControlModifier:
+            # ⌘ on macOS (Qt reports Command as Control): Mac-style editing,
+            # never sent to the remote side. The real Control key arrives as
+            # Meta and is translated by key_to_bytes.
+            if key == Qt.Key.Key_C:
+                self.copy()
+            elif key == Qt.Key.Key_V:
+                self.paste()
+            elif key == Qt.Key.Key_A:
+                self.select_all()
+            elif key == Qt.Key.Key_K:
+                self.clear()
+            else:
+                super().keyPressEvent(event)
             return
         data = key_to_bytes(key, mods, event.text(), self.emulator.app_cursor_keys)
         if data is None:
