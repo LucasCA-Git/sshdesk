@@ -27,6 +27,7 @@ from typing import Any
 
 from ssh_terminal import __version__
 from ssh_terminal.models.ssh_host import SSHHost
+from ssh_terminal.services.host_identity import alias_key, same_server
 from ssh_terminal.ssh.config_parser import ConfigLine, LineKind, SSHConfigDocument, SSHConfigSet, quote_argument
 from ssh_terminal.ssh.config_writer import ConfigFileWriter
 from ssh_terminal.utils.paths import expand_user_path, get_app_dir
@@ -482,9 +483,14 @@ class TeamService:
         self._etag = resp_headers.get("ETag") or resp_headers.get("etag")
         teams = payload["teams"]
 
-        # Aliases defined in the user's own files win over team hosts.
+        # The user's own hosts always win: a team host is skipped when it has the
+        # same name OR points at the same server as a personal host. Between
+        # teams, the first team that provides a host wins.
         personal = SSHConfigSet.load(config_path)
-        own_aliases = {p for doc in personal.documents if not self._is_team_file(doc.path) for h in doc.hosts() for p in h.patterns}
+        own_hosts = [h for doc in personal.documents if not self._is_team_file(doc.path) for h in doc.hosts()]
+        own_aliases = {alias_key(p) for h in own_hosts for p in h.patterns}
+        own_servers = [h for h in own_hosts if not h.is_wildcard]
+        accepted: list[tuple[str, dict[str, Any]]] = []  # (team name, host) already written
 
         self.dir.mkdir(parents=True, exist_ok=True)
         wanted_files: set[str] = set()
@@ -501,10 +507,12 @@ class TeamService:
                 if error:
                     result.rejected.append(f"{host.get('alias', '?')} ({team['name']}): {error}")
                     continue
-                if host["alias"] in own_aliases or host["alias"] in seen_aliases:
-                    result.conflicts.append(f"{host['alias']} ({team['name']})")
+                reason = self._duplicate_reason(host, own_aliases, own_servers, seen_aliases, accepted)
+                if reason is not None:
+                    result.conflicts.append(f"{host['alias']} ({team['name']}){reason}")
                     continue
-                seen_aliases.add(host["alias"])
+                seen_aliases.add(alias_key(host["alias"]))
+                accepted.append((team["name"], host))
                 usable.append(host)
                 if host.get("group"):
                     self.host_groups[host["alias"]] = " ".join(str(host["group"]).split())
@@ -523,6 +531,24 @@ class TeamService:
         self._save_state()
         log.info("Team sync: %d team(s), %d host(s), %d conflict(s)", len(teams), result.hosts_written, len(result.conflicts))
         return result
+
+    @staticmethod
+    def _duplicate_reason(host: dict[str, Any], own_aliases: set[str], own_servers: list[SSHHost],
+                          seen_aliases: set[str], accepted: list[tuple[str, dict[str, Any]]]) -> str | None:
+        """Why a team host must not be written ("" = same name as a personal host), or None if it is new."""
+        name = alias_key(host["alias"])
+        if name in own_aliases:
+            return ""
+        mine = next((h for h in own_servers if same_server(host, h)), None)
+        if mine is not None:
+            return f": same server as your “{mine.alias}”"
+        if name in seen_aliases:
+            other = next(t for t, h in accepted if alias_key(h["alias"]) == name)
+            return f": name already used by team “{other}”"
+        twin = next(((t, h) for t, h in accepted if same_server(host, h)), None)
+        if twin is not None:
+            return f": same server as “{twin[1]['alias']}” from team “{twin[0]}”"
+        return None
 
     def _is_team_file(self, path: Path | None) -> bool:
         if path is None:

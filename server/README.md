@@ -128,6 +128,7 @@ Health check (outside the API prefix): `GET /healthz`.
 - **Invites:** stored as hashes, single-use, expiring and bound to the invited email.
 - **Teams:** non-members get `404`, so they cannot discover which teams exist.
 - **Hosts:** strict validation of every field plus the option allow-list described above.
+- **No duplicates:** a team never holds the same host twice: not by name (case-insensitive) and not by server (same HostName, port, ProxyJump and user). The app also skips team hosts that duplicate a member's personal hosts or another team's.
 
 Please report vulnerabilities privately; see [SECURITY.md](../SECURITY.md).
 

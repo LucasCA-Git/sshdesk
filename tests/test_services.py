@@ -48,6 +48,15 @@ def test_service_crud_roundtrip(service: ConfigService, ssh_config: Path) -> Non
         service.add_host(SSHHost(alias="prod"))  # alias of server-prod
 
 
+def test_service_rejects_names_differing_only_in_case(service: ConfigService) -> None:
+    from ssh_terminal.models.ssh_host import SSHHost
+
+    with pytest.raises(DuplicateHostError):
+        service.add_host(SSHHost(alias="SERVER-PROD", hostname="1.2.3.4"))
+    with pytest.raises(DuplicateHostError):
+        service.rename_host("bastion", "Database")
+
+
 def test_service_preserves_external_edits(service: ConfigService, ssh_config: Path) -> None:
     service.reload()
     ssh_config.write_text(ssh_config.read_text() + "\nHost added-outside\n    HostName 1.2.3.4\n")

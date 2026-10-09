@@ -550,3 +550,36 @@ def test_whats_new_shows_once_per_version(qapp, ssh_config: Path) -> None:
     assert "First release" in w2._whats_new.notes.toPlainText()
     w2._whats_new.accept()
     w2.close()
+
+
+def test_new_or_edited_host_cannot_duplicate_an_existing_one(window, qapp) -> None:
+    from ssh_terminal.models.ssh_host import SSHHost
+
+    host = window.ctx.config.get_host  # sample config: server-prod = lucas@10.0.0.10:22, database via bastion
+    # same server as server-prod (user unset counts as the same login)
+    msg = window._duplicate_problem(SSHHost(alias="prod-copy", hostname="10.0.0.10"))
+    assert msg and "already saved as" in msg and "server-prod" in msg
+    # same name, other case
+    assert "already exists" in window._duplicate_problem(SSHHost(alias="Server-HML", hostname="9.9.9.9"))
+    # a different server is fine; so is 10.0.0.20 without the bastion (another network)
+    assert window._duplicate_problem(SSHHost(alias="new", hostname="10.0.0.99")) is None
+    assert window._duplicate_problem(SSHHost(alias="db-direct", hostname="10.0.0.20", user="postgres")) is None
+    # editing a host without changing its server never complains (also after Duplicate)
+    original = host("server-hml")
+    edited = SSHHost(alias="server-hml", hostname=original.hostname, user=original.user, port=original.port,
+                     identity_files=["~/.ssh/other"])
+    assert window._duplicate_problem(edited, original) is None
+    # ...but moving it onto another host's server does
+    moved = SSHHost(alias="server-hml", hostname="10.0.0.20", user="postgres", proxy_jump="bastion")
+    assert "database" in window._duplicate_problem(moved, original)
+
+
+def test_sidebar_never_lists_a_host_twice(window, qapp, isolated_home: Path) -> None:
+    cfg = isolated_home / ".ssh" / "config"
+    cfg.write_text(cfg.read_text() + "\nHost server-hml\n    HostName 6.6.6.6\n")  # repeated block
+    window.reload_config()
+    tree = window.sidebar.tree
+    names = [tree.topLevelItem(i).child(j).text(0) for i in range(tree.topLevelItemCount())
+             for j in range(tree.topLevelItem(i).childCount())
+             if tree.topLevelItem(i).text(0) == "HOSTS"]
+    assert names.count("server-hml") == 1

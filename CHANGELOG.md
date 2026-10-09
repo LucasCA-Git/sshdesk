@@ -19,6 +19,7 @@ Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 ### Improved
 - New Termius-like look: terminal cards, pill tabs and a calmer dark palette.
 - Arrange all terminals of a tab as a grid (Ctrl+Shift+G).
+- No duplicate hosts: a team host is skipped when you already have it (same name or same server), the same server is never synced twice from two teams, and new or edited connections that would repeat an existing one are blocked with a clear message. Names are compared case-insensitively, like OpenSSH.
 
 ### Fixed
 - Closing a tab while it was still connecting could crash the app on Windows.

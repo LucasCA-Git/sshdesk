@@ -603,6 +603,18 @@ TeamService.sync()           → GET /api/v1/sync (ETag; 304 se nada mudou)
        Include <pasta do app>/teams/*.conf
 ```
 
+### Hosts nunca se repetem (`services/host_identity.py`)
+
+Dois hosts são "o mesmo" quando têm **o mesmo nome** (sem diferenciar maiúsculas, como o OpenSSH) **ou o mesmo servidor**: mesmo HostName, porta e ProxyJump, e mesmo usuário (ou um dos dois sem usuário). O ProxyJump entra na conta porque IPs privados como `10.0.0.10` se repetem atrás de bastions diferentes.
+
+| Onde | O que acontece |
+|---|---|
+| Sync do time | host do time com o mesmo nome **ou** o mesmo servidor de um host seu é pulado (o seu vence); entre times, o primeiro que trouxer o host vence. Os pulados aparecem na barra de status ("skipped duplicates"). |
+| Você cria/edita/renomeia um host seu | o formulário bloqueia se o nome já existe (seu ou do time) ou se o servidor já está salvo com outro nome, dizendo qual é. Editar sem mudar o servidor (inclusive depois de *Duplicate*) não reclama. Depois de salvar, o app re-sincroniza o time para tirar a cópia do time. |
+| Compartilhar com o time | se o time já tem esse servidor com outro nome, o app avisa e não cria uma segunda cópia (no *Share Group*, ele pula e lista quais). |
+| Servidor de times | recusa (409) criar ou editar um host que repita nome ou servidor dentro do time — vale para qualquer cliente. |
+| Sidebar | mesmo antes do próximo sync, nunca mostra o mesmo host duas vezes (prefere o seu); blocos `Host` repetidos no seu config aparecem uma vez só (o OpenSSH só usa o primeiro). |
+
 Consequências:
 
 - O `~/.ssh/config` continua sendo a fonte da verdade, porque os hosts do time entram por `Include`. Por isso eles funcionam também no `ssh`, `scp` e `git` do terminal, não só no app.

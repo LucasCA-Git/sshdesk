@@ -33,6 +33,7 @@ from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services import diagnostics_service
 from ssh_terminal.services.app_context import AppContext
 from ssh_terminal.services.connection_service import ConnectionService
+from ssh_terminal.services.host_identity import alias_key, dedupe, find_duplicate, same_server
 from ssh_terminal.services.team_service import SyncResult, TeamApiError, TeamInfo, host_to_payload
 from ssh_terminal.ssh.host_classifier import HostRole, git_remote_example, guess_role, host_role
 from ssh_terminal.ssh.host_keys import KnownHostsStore, host_id_for
@@ -483,8 +484,10 @@ class MainWindow(QMainWindow):
     def _refresh_sidebar(self) -> None:
         cfg = self.ctx.config
         teams = self.ctx.teams
+        hosts = cfg.hosts()
+        personal = [h for h in hosts if teams.team_for_path(h.source_file) is None]
         self.sidebar.populate(
-            cfg.hosts(),
+            dedupe(hosts, prefer=personal),  # never list the same host twice
             cfg.wildcard_hosts(),
             self.settings,
             team_of=lambda h: teams.team_for_path(h.source_file),
@@ -569,6 +572,10 @@ class MainWindow(QMainWindow):
         except (ConfigError, OSError) as exc:
             show_error(self, describe_exception(exc))
             return False
+        if self.ctx.teams.signed_in:
+            # personal hosts win over team hosts: rewrite the team files so a host you just
+            # added/renamed is not duplicated by a team copy (OpenSSH would use the first one)
+            self.sync_teams(force=True, quiet=True)
         return True
 
     def _dialog_test(self, host: SSHHost, password: str | None) -> None:
@@ -588,6 +595,23 @@ class MainWindow(QMainWindow):
                 return
             self.ctx.credentials.set_password(resolved.user, resolved.hostname, resolved.port, dlg.password)
 
+    def _duplicate_problem(self, host: SSHHost, original: SSHHost | None = None) -> str | None:
+        """Message if ``host`` would duplicate a host you (or your teams) already have."""
+        if original is not None and same_server(host, original):
+            return None  # editing without changing the server (also covers Duplicate → edit)
+        ignore = list(original.patterns) if original is not None else []
+        found = find_duplicate(host, self.ctx.config.hosts(), ignore_aliases=ignore)
+        if found is None:
+            return None
+        kind, other = found
+        team = self.ctx.teams.team_for_path(other.source_file)
+        where = f" (shared by team “{team.name}”)" if team else ""
+        if kind == "name":
+            return f"A host named “{other.alias}”{where} already exists."
+        return (f"This server is already saved as “{other.alias}”{where}: "
+                f"{other.display_address}{f' via {other.proxy_jump}' if other.proxy_jump else ''}.\n\n"
+                "Use that connection instead, or change the host, port, user or ProxyJump.")
+
     def new_connection(self) -> None:
         if not self.ctx.config.exists:
             if not confirm(self, "No SSH config", f"{self.ctx.config.path} does not exist yet.\n\nCreate it now?", "Create"):
@@ -600,6 +624,7 @@ class MainWindow(QMainWindow):
             on_test=self._dialog_test,
             keyring_available=self.ctx.credentials.available and self.settings.allow_keyring,
             parent=self,
+            duplicate_check=self._duplicate_problem,
         )
         if not dlg.exec():
             return
@@ -630,6 +655,7 @@ class MainWindow(QMainWindow):
             on_test=self._dialog_test,
             keyring_available=self.ctx.credentials.available and self.settings.allow_keyring,
             parent=self,
+            duplicate_check=lambda h, original=host: self._duplicate_problem(h, original),
         )
         if not dlg.exec():
             return
@@ -1327,7 +1353,7 @@ class MainWindow(QMainWindow):
             self._update_account_ui()
             message = f"Team hosts synced: {result.hosts_written} host(s) from {len(result.teams)} team(s)"
             if result.conflicts:
-                message += f" — skipped (alias already in your config): {', '.join(result.conflicts)}"
+                message += f" — skipped duplicates: {'; '.join(result.conflicts)}"
             if result.rejected:
                 message += f" — rejected as unsafe: {', '.join(result.rejected)}"
             if not (quiet and result.unchanged):
@@ -1379,8 +1405,14 @@ class MainWindow(QMainWindow):
             self.sync_teams(force=True)
 
         def upsert() -> object:  # sharing again moves the host to the chosen group instead of failing
-            existing = {h["alias"]: h["id"] for h in self.ctx.teams.team_hosts(chosen)}
-            return self.ctx.teams.save_host(chosen, payload, existing.get(alias))
+            team_hosts = self.ctx.teams.team_hosts(chosen)
+            same_name = next((h for h in team_hosts if alias_key(h["alias"]) == alias_key(alias)), None)
+            if same_name is None:
+                twin = next((h for h in team_hosts if same_server(payload, h)), None)
+                if twin is not None:
+                    raise ValueError(f"This server is already in the team as “{twin['alias']}”. "
+                                     "Edit that host in the team instead of sharing a second copy.")
+            return self.ctx.teams.save_host(chosen, payload, same_name["id"] if same_name else None)
 
         run_async(upsert, on_done=shared,
                   on_error=lambda e: show_error(self, FriendlyError("Could not share host", str(e))), name="team-share")
@@ -1404,13 +1436,20 @@ class MainWindow(QMainWindow):
         payloads = [host_to_payload(h, group, self._host_keys_for(h.alias)) for h in hosts]
 
         def upload() -> tuple[int, int, list[str]]:
-            existing = {h["alias"]: h["id"] for h in self.ctx.teams.team_hosts(team.id)}
+            team_hosts = self.ctx.teams.team_hosts(team.id)
+            existing = {alias_key(h["alias"]): h["id"] for h in team_hosts}
             created = updated = 0
             errors: list[str] = []
             for payload in payloads:
+                host_id = existing.get(alias_key(payload["alias"]))
+                twin = None if host_id else next((h for h in team_hosts if same_server(payload, h)), None)
+                if twin is not None:
+                    errors.append(f"{payload['alias']}: already in the team as “{twin['alias']}” (skipped)")
+                    continue
                 try:
-                    host_id = existing.get(payload["alias"])
-                    self.ctx.teams.save_host(team.id, payload, host_id)
+                    saved = self.ctx.teams.save_host(team.id, payload, host_id)
+                    if isinstance(saved, dict) and saved.get("id"):
+                        team_hosts.append({**payload, "id": saved["id"]})
                     if host_id:
                         updated += 1
                     else:

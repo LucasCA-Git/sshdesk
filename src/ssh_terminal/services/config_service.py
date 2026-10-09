@@ -129,10 +129,16 @@ class ConfigService:
         self.writer.write(doc.path, doc.render())
         self.reload()
 
+    @staticmethod
+    def _name_owner(fresh: SSHConfigSet, pattern: str) -> SSHHost | None:
+        """Host block (personal or team) already using ``pattern``, compared case-insensitively."""
+        wanted = pattern.lower()
+        return next((h for h in fresh.hosts() if any(p.lower() == wanted for p in h.patterns)), None)
+
     def add_host(self, host: SSHHost) -> None:
         fresh = self._fresh()
         for pattern in host.patterns:
-            if fresh.find(pattern):
+            if self._name_owner(fresh, pattern) is not None:
                 raise DuplicateHostError(pattern)
         config_writer.add_host(fresh.main, host)
         self._write(fresh.main)
@@ -142,8 +148,8 @@ class ConfigService:
         fresh = self._fresh()
         doc = self._owner(fresh, original_alias)
         for pattern in host.patterns:
-            other = fresh.find(pattern)
-            if other and original_alias not in other[1].patterns:
+            other = self._name_owner(fresh, pattern)
+            if other is not None and original_alias not in other.patterns:
                 raise DuplicateHostError(pattern)
         config_writer.update_host(doc, original_alias, host)
         self._write(doc)

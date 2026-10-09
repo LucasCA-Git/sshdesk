@@ -130,3 +130,30 @@ def test_unreachable_server(tmp_path: Path) -> None:
     svc = TeamService(MemoryCreds(), tmp_path)
     with pytest.raises(TeamApiError, match="Cannot reach"):
         svc.login("http://127.0.0.1:9", "a@b.com", "password-123")
+
+
+def test_sync_never_duplicates_hosts(server: str, isolated_home: Path, tmp_path: Path) -> None:
+    """Personal hosts win over team hosts (by name or server); between teams the first one wins."""
+    cfg = isolated_home / ".ssh" / "config"
+    cfg.write_text("Host painel\n    HostName 10.0.0.1\n    User deploy\n")
+    writer = ConfigFileWriter(tmp_path / "backups")
+    owner = TeamService(MemoryCreds(), tmp_path / "owner")
+    owner.register(server, "dup-owner@example.com", "password-123")
+    infra = owner.create_team("Infra")
+    dev = owner.create_team("Dev")
+    owner.save_host(infra.id, host_to_payload(SSHHost(alias="PAINEL", hostname="10.9.9.9")))         # same name, other case
+    owner.save_host(infra.id, host_to_payload(SSHHost(alias="painel-team", hostname="10.0.0.1")))    # same server, other name
+    owner.save_host(infra.id, host_to_payload(SSHHost(alias="api", hostname="10.0.0.30", user="ops")))
+    owner.save_host(dev.id, host_to_payload(SSHHost(alias="api-dev", hostname="10.0.0.30", user="ops")))  # same as Infra's
+    owner.save_host(dev.id, host_to_payload(SSHHost(alias="worker", hostname="10.0.0.40")))
+
+    result = owner.sync(cfg, writer)
+    written = {h.alias for h in SSHConfigSet.load(cfg).concrete_hosts() if owner.team_for_path(h.source_file)}
+    joined = " | ".join(result.conflicts)
+    assert "PAINEL (Infra)" in joined
+    assert "painel-team (Infra): same server as your “painel”" in joined
+    # the shared "api" server comes from whichever team is synced first, never from both
+    assert written in ({"api", "worker"}, {"api-dev", "worker"})
+    assert result.hosts_written == 2 and len(result.conflicts) == 3
+    assert ("api-dev (Dev): same server as “api” from team “Infra”" in joined
+            or "api (Infra): same server as “api-dev” from team “Dev”" in joined)

@@ -89,8 +89,10 @@ class ConnectionDialog(QDialog):
         on_test: Callable[[SSHHost, str | None], None] | None = None,
         keyring_available: bool = False,
         parent: QWidget | None = None,
+        duplicate_check: Callable[[SSHHost], str | None] | None = None,
     ) -> None:
         super().__init__(parent)
+        self.duplicate_check = duplicate_check  # returns why the host would be a duplicate, or None
         self.original = copy.deepcopy(host) if host else None
         self.host = copy.deepcopy(host) if host else SSHHost(alias="")
         self.is_defaults = bool(host and host.is_wildcard)
@@ -465,7 +467,8 @@ class ConnectionDialog(QDialog):
             if any(is_pattern(p) for p in patterns):
                 self._invalid("Name and aliases cannot contain wildcards (*, ?, !). Use SSH Defaults for patterns.", self.alias_edit)
                 return None
-        clash = [p for p in patterns if p in self.existing]
+        existing = {e.lower() for e in self.existing}
+        clash = [p for p in patterns if p.lower() in existing]  # OpenSSH matches names case-insensitively
         if clash:
             self._invalid(f'A host named "{clash[0]}" already exists.', self.alias_edit)
             return None
@@ -566,8 +569,14 @@ class ConnectionDialog(QDialog):
         widget.setFocus()
 
     def _save(self) -> None:
-        if self._collect() is not None:
-            self.accept()
+        host = self._collect()
+        if host is None:
+            return
+        problem = self.duplicate_check(copy.deepcopy(host)) if self.duplicate_check and not self.is_defaults else None
+        if problem:
+            self._invalid(problem, self.hostname_edit)
+            return
+        self.accept()
 
     def _test(self) -> None:
         backup = copy.deepcopy(self.host)
