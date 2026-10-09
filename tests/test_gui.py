@@ -690,3 +690,54 @@ def test_local_terminal_offers_every_shell(window) -> None:
     window.set_default_shell("bash")
     assert window.settings.default_local_shell == "bash"
     assert window.connections.shell_profile().name == "bash"
+
+
+def test_share_host_never_touches_widgets_from_the_worker(window, qapp, monkeypatch) -> None:
+    """Regression: reading the dialog's checkbox inside the worker crashed the app (SIGSEGV)."""
+    import threading
+
+    import ssh_terminal.ui.main_window as mw
+    from ssh_terminal.services.team_service import TeamInfo
+
+    team = TeamInfo(7, "devops", "devops", "owner")
+    teams = window.ctx.teams
+    monkeypatch.setattr(type(teams), "teams", property(lambda self: [team]), raising=False)
+    monkeypatch.setattr(teams, "team_hosts", lambda team_id: [{"alias": "server-prod", "id": 5, "user": "deploy"}])
+    saved: list[tuple[dict, int | None]] = []
+    monkeypatch.setattr(teams, "save_host", lambda tid, payload, host_id=None: saved.append((payload, host_id)) or {})
+    monkeypatch.setattr(window, "sync_teams", lambda *a, **k: None)
+    checked_from: list[threading.Thread] = []
+
+    class _Box:
+        def isChecked(self) -> bool:  # noqa: N802 - Qt name
+            checked_from.append(threading.current_thread())
+            return False
+
+    class _Combo:
+        def setCurrentIndex(self, _i: int) -> None:  # noqa: N802
+            pass
+
+        def findData(self, _d: int) -> int:  # noqa: N802
+            return 0
+
+        def currentData(self) -> int:  # noqa: N802
+            return 7
+
+    class _Line:
+        def text(self) -> str:
+            return " Prod / Web "
+
+    class FakeShare:
+        def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            self.team, self.group, self.share_login = _Combo(), _Line(), _Box()
+
+        def exec(self) -> bool:
+            return True
+
+    monkeypatch.setattr(mw, "ShareHostDialog", FakeShare)
+    window.share_host("server-prod", 7)
+    _wait_for(qapp, lambda: "shared with the team" in window.statusBar().currentMessage())
+    assert len(saved) == 1
+    assert checked_from and all(t is threading.main_thread() for t in checked_from)
+    payload, host_id = saved[0]
+    assert host_id == 5 and payload["group"] == "Prod/Web" and payload["user"] == "deploy"

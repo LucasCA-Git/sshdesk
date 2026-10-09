@@ -1553,8 +1553,9 @@ class MainWindow(QMainWindow):
         if not dlg.exec():
             return
         chosen = dlg.team.currentData()
-        group = " ".join(dlg.group.text().split())
-        payload = host_to_payload(host, group, keys, share_login=dlg.share_login.isChecked())
+        group = normalize_group(dlg.group.text())
+        share_login = dlg.share_login.isChecked()  # read widgets here: upsert() runs in a worker thread
+        payload = host_to_payload(host, group, keys, share_login=share_login)
 
         def shared(_r: object) -> None:
             where = f" in group “{group}”" if group else ""
@@ -1569,7 +1570,7 @@ class MainWindow(QMainWindow):
                 if twin is not None:
                     raise ValueError(f"This server is already in the team as “{twin['alias']}”. "
                                      "Edit that host in the team instead of sharing a second copy.")
-            if same_name is not None and not dlg.share_login.isChecked():
+            if same_name is not None and not share_login:
                 payload["user"] = same_name.get("user", "")  # keep the team's login as it is
                 payload["identity_file"] = same_name.get("identity_file", "")
             return self.ctx.teams.save_host(chosen, payload, same_name["id"] if same_name else None)
