@@ -64,7 +64,7 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and o
 ### Managing hosts
 
 - Create, edit, duplicate, rename and delete hosts in a form. Only the changed lines are rewritten, with a backup and an atomic write each time.
-- Favorites, recents, visual groups, instant search, and a resizable sidebar with a grip you can always pull back.
+- Favorites, recents, visual groups with sub-groups (Production › Web › EU), instant search, and a resizable sidebar with a grip you can always pull back.
 - External edits are detected live: *Reload / Keep / View differences*.
 
 ### Look & feel
@@ -180,7 +180,8 @@ docker compose up -d      # API on :8080. Put it behind HTTPS for real use.
 In the app, use *Account › Create Account / Sign In* with your server URL. After that:
 
 - **Teams and roles** (owner / admin / member), with **invites by email + one-time code**.
-- **Share a host** (right-click › *Share with Team*), choosing the group, or **share a whole group** (right-click the group title).
+- **Share a host** (right-click › *Share with Team*), choosing the group, or **share a whole group** with its sub-groups (right-click the group title).
+- **Everyone uses their own login.** Your username and key path are not shared: on first access each member types their own (username, key, optional password), kept only on their machine. Tick *Share my login too* only for a service account like `deploy`.
 - Anyone can **remove a team host from their own list** (it stays in the team for others, restorable anytime); admins can remove it for everyone.
 - Members see `TEAM · DEVOPS › HML` sections, and the hosts also work in plain `ssh`/`scp`/`git`, because they are written to a managed file pulled in with `Include`. Your personal hosts always win on name conflicts.
 - **Never shared:** private keys, passwords, `ProxyCommand` or any option that could run commands on members' machines. The allow-list is enforced by the server *and* by the app.

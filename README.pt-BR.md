@@ -63,7 +63,7 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 ### Gerenciando hosts
 
 - Criar, editar, duplicar, renomear e excluir hosts por formulário. Só as linhas alteradas são reescritas, sempre com backup e escrita atômica.
-- Favoritos, recentes, grupos visuais, busca instantânea e uma barra lateral redimensionável com alça que sempre dá para puxar de volta.
+- Favoritos, recentes, grupos visuais com subgrupos (Produção › Web › EU), busca instantânea e uma barra lateral redimensionável com alça que sempre dá para puxar de volta.
 - Mudanças feitas por fora no arquivo são detectadas na hora: *Reload / Keep / View differences*.
 
 ### Visual
@@ -181,7 +181,8 @@ docker compose up -d      # API na porta 8080. Em produção, coloque atrás de 
 No app, use *Account › Create Account / Sign In* com a URL do seu servidor. A partir daí:
 
 - **Times e papéis** (owner / admin / member), com **convite por email + código de uso único**.
-- **Compartilhar um host** (botão direito › *Share with Team*), escolhendo o grupo, ou **um grupo inteiro** (botão direito no título do grupo).
+- **Compartilhar um host** (botão direito › *Share with Team*), escolhendo o grupo, ou **um grupo inteiro** com seus subgrupos (botão direito no título do grupo).
+- **Cada um usa o próprio login.** Seu usuário e o caminho da sua chave não são compartilhados: no primeiro acesso cada membro informa o dele (usuário, chave, senha opcional), que fica só na máquina dele. Marque *Share my login too* apenas para conta de serviço, como `deploy`.
 - Qualquer pessoa pode **tirar um host do time só da própria lista** (continua no time para os outros e dá para restaurar); admins podem remover para todos.
 - Os membros veem seções `TEAM · DEVOPS › HML`, e os hosts funcionam também no `ssh`/`scp`/`git` comum, porque são escritos num arquivo gerenciado incluído com `Include`. Em caso de nome repetido, o host pessoal sempre vence.
 - **Nunca compartilhado:** chaves privadas, senhas, `ProxyCommand` ou qualquer opção que execute comandos na máquina dos membros. O servidor **e** o app aplicam a allow-list.

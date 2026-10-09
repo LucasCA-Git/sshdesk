@@ -3,6 +3,16 @@
 All notable changes to SSHDesk. The newest version is at the top.
 Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
+## [1.2.0] - 2026-10-09
+
+### New
+- Your own login on shared hosts: sharing a host no longer sends your username or key path. The first time a member opens a team host, SSHDesk asks for **their** username, key file and (optionally) password, kept only on their computer. Change it anytime with right-click › My Login on This Host. Tick "Share my login too" only for service accounts everyone uses (e.g. deploy).
+- Sub-groups: organise hosts as Production › Web › EU. Right-click a group › New Sub-group, Rename or Delete Group, or type `Parent/Child` in Move to Group › New Group. Sharing a group with the team keeps its sub-groups, and team members see the same tree.
+- Choose your local shell: the Local Terminal button now lists every shell found — PowerShell 7, Windows PowerShell, Command Prompt, Git Bash, WSL and each WSL distribution (bash, zsh, fish… on Linux and macOS) — and lets you pick the default.
+
+### Fixed
+- A local shell that closed right after starting showed a raw number ("status 3221225786"). The message is now readable, and on Windows SSHDesk retries once with the older WinPTY console before giving up.
+
 ## [1.1.0] - 2026-10-08
 
 ### New

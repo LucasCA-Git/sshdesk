@@ -10,9 +10,10 @@ The desktop app works 100% locally without it. The server only comes into play w
 
 | Shared with the team | Never leaves each person's machine |
 |---|---|
-| Alias, HostName, User, Port, ProxyJump | Private keys |
-| IdentityFile path (as a hint only) | Passwords and passphrases |
-| Group and description | Personal `~/.ssh/config` |
+| Alias, HostName, Port, ProxyJump | Private keys |
+| Group (and sub-groups) and description | Passwords and passphrases |
+| User and IdentityFile path, **only** if the sharer ticks "Share my login too" (service accounts) | Each member's own username and key, typed on first access |
+| | Personal `~/.ssh/config` |
 | Safe options (`ServerAliveInterval`, `LocalForward`…) | |
 | Host key fingerprints (so nobody accepts keys blindly) | |
 
@@ -86,7 +87,8 @@ Then each user opens the app, goes to *Account › Create Account / Sign In* and
    - only a hash of the code is stored.
 4. The invited person signs in with **that email** and uses *Teams › Accept Invite*.
 5. Sharing hosts (admins and owners):
-   - right-click a host › **Share with Team**, choosing the **group** it belongs to in the team;
+   - right-click a host › **Share with Team**, choosing the **group** it belongs to in the team (`Parent/Child` for a sub-group);
+   - by default your login is not shared: each member is asked for **their own** username (and key/password) the first time they open the host, and can change it with right-click › **My Login on This Host**;
    - right-click a **group title** › **Share Group with Team** to publish the whole group at once (existing hosts are updated);
    - **Edit in Team** / **Remove from Team** on hosts that already belong to the team.
 6. The app syncs on start, every 5 minutes and after each change. The server answers `304 Not Modified` when nothing changed (ETag). Members see `TEAM · <team> › <group>` sections, and the hosts also work in plain `ssh`, `scp` and `git` through a managed `Include`.
