@@ -330,7 +330,7 @@ def test_share_group_with_team_and_team_subgroups(window, qapp, monkeypatch) -> 
     saved: list[tuple[int, dict, int | None]] = []
     teams = window.ctx.teams
     monkeypatch.setattr(type(teams), "teams", property(lambda self: [team]), raising=False)
-    monkeypatch.setattr(teams, "team_hosts", lambda team_id: [{"alias": "server-hml", "id": 41}])
+    monkeypatch.setattr(teams, "team_hosts", lambda team_id: [{"alias": "server-hml", "id": 41, "user": "deploy"}])
     monkeypatch.setattr(teams, "save_host", lambda tid, payload, host_id=None: saved.append((tid, payload, host_id)) or {})
     monkeypatch.setattr(window, "sync_teams", lambda *a, **k: None)
     monkeypatch.setattr(mw, "confirm", lambda *a, **k: True)
@@ -340,6 +340,8 @@ def test_share_group_with_team_and_team_subgroups(window, qapp, monkeypatch) -> 
     by_alias = {p["alias"]: (tid, p, hid) for tid, p, hid in saved}
     assert by_alias["server-prod"][2] is None and by_alias["server-hml"][2] == 41  # create vs update
     assert all(p["group"] == "Staging EU" and tid == 7 for tid, p, _ in saved)
+    # a new host goes up without my login; an existing one keeps the login the team already shares
+    assert by_alias["server-prod"][1]["user"] == "" and by_alias["server-hml"][1]["user"] == "deploy"
 
     # the group section offers "Share Group with Team"
     window.sidebar.populate(window.ctx.config.hosts(), [], window.settings, editable_teams=[team])
@@ -352,21 +354,48 @@ def test_team_hosts_show_in_team_subgroups(qapp, ssh_config: Path) -> None:
     from ssh_terminal.models.app_settings import AppSettings
     from ssh_terminal.models.ssh_host import SSHHost
     from ssh_terminal.services.team_service import TeamInfo
-    from ssh_terminal.ui.connection_panel import ConnectionPanel
+    from ssh_terminal.ui.connection_panel import ROLE_SECTION, ConnectionPanel
 
     team = TeamInfo(7, "devops", "devops", "member")
     hosts = [SSHHost(alias="vm-a", hostname="1.1.1.1"), SSHHost(alias="vm-b", hostname="1.1.1.2", comment="web box"),
              SSHHost(alias="vm-c", hostname="1.1.1.3")]
-    groups = {"vm-a": "Staging EU", "vm-b": "Staging EU"}
+    groups = {"vm-a": "Staging EU", "vm-b": "Staging EU / Web"}
     panel = ConnectionPanel()
     panel.populate(hosts, [], AppSettings(), team_of=lambda h: team, team_group_of=lambda a: groups.get(a, ""))
     tree = panel.tree
-    sections = {tree.topLevelItem(i).text(0): [tree.topLevelItem(i).child(j).text(0) for j in range(tree.topLevelItem(i).childCount())]
-                for i in range(tree.topLevelItemCount())}
-    assert sections["TEAM · DEVOPS"] == ["vm-c"]
-    assert sections["TEAM · DEVOPS › STAGING EU"] == ["vm-a", "vm-b"]
-    vm_b = tree.topLevelItem(1).child(1)
+    root = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount()) if tree.topLevelItem(i).text(0) == "TEAM · DEVOPS")
+    # sub-groups first, then the team's ungrouped hosts
+    assert [root.child(j).text(0) for j in range(root.childCount())] == ["STAGING EU", "vm-c"]
+    staging = root.child(0)
+    assert [staging.child(j).text(0) for j in range(staging.childCount())] == ["WEB", "vm-a"]
+    web = staging.child(0)
+    assert web.data(0, ROLE_SECTION) == "team:devops:Staging EU/Web"
+    vm_b = web.child(0)
+    assert vm_b.text(0) == "vm-b"
     assert "web box" in vm_b.toolTip(0) and "devops" in vm_b.toolTip(0)
+    assert "asked on first access" in vm_b.toolTip(0)  # shared without a login
+    panel.search.setText("vm-b")
+    assert not web.isHidden() and staging.child(1).isHidden() and root.child(1).isHidden()
+    assert panel._first_visible_host() == "vm-b"
+
+
+def test_personal_subgroups(qapp, ssh_config: Path) -> None:
+    from ssh_terminal.models.app_settings import AppSettings
+    from ssh_terminal.models.ssh_host import SSHHost
+    from ssh_terminal.ui.connection_panel import ConnectionPanel
+
+    settings = AppSettings()
+    settings.set_group("web-1", "Production / Web")
+    settings.set_group("db-1", "Production")
+    settings.add_group("Production/Empty")
+    hosts = [SSHHost(alias=a, hostname=f"10.0.0.{i}") for i, a in enumerate(["web-1", "db-1", "loose"], 1)]
+    panel = ConnectionPanel()
+    panel.populate(hosts, [], settings)
+    tree = panel.tree
+    prod = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount()) if tree.topLevelItem(i).text(0) == "PRODUCTION")
+    assert [prod.child(j).text(0) for j in range(prod.childCount())] == ["EMPTY", "WEB", "db-1"]
+    assert prod.child(1).child(0).text(0) == "web-1"
+    assert panel._host_count(prod) == 2
 
 
 def test_files_tab_drop_upload_and_mixed_split(window, qapp, tmp_path: Path) -> None:
@@ -600,3 +629,64 @@ def test_delete_key_on_team_host_removes_it_from_my_list(window, qapp, monkeypat
     monkeypatch.setattr(window.ctx.config, "remove_host", lambda alias: removed_from_config.append(alias))
     window.delete_connection("server-hml")  # member: never touches the team or the personal config
     assert hidden == ["devops/server-hml"] and removed_from_config == []
+
+
+def test_team_host_asks_for_my_own_login_first(window, monkeypatch) -> None:
+    import ssh_terminal.ui.main_window as mw
+    from ssh_terminal.models.ssh_host import SSHHost
+    from ssh_terminal.services.team_service import TeamInfo
+
+    team = TeamInfo(7, "devops", "devops", "member")
+    host = SSHHost(alias="team-box", hostname="10.1.1.1")
+    monkeypatch.setattr(window, "_team_of_alias", lambda a: team if a == "team-box" else None)
+    real_get = window.ctx.config.get_host
+    monkeypatch.setattr(window.ctx.config, "get_host", lambda a: host if a == "team-box" else real_get(a))
+    monkeypatch.setattr(window, "reload_config", lambda *a, **k: None)
+    asked: list[tuple[str, str, str]] = []
+    answer = {"ok": False}
+
+    class _Text:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+        def text(self) -> str:
+            return self.value
+
+    class FakeDialog:
+        def __init__(self, alias, team_name, address, user, identity, can_save, parent) -> None:  # noqa: ANN001
+            asked.append((alias, team_name, address))
+            self.user, self.identity, self.password = _Text("ana"), _Text(""), _Text("")
+
+        def exec(self) -> bool:
+            return answer["ok"]
+
+    monkeypatch.setattr(mw, "TeamLoginDialog", FakeDialog)
+    saved: list[tuple[str, str, str]] = []
+    teams = window.ctx.teams
+    monkeypatch.setattr(teams, "set_my_login", lambda t, a, u, i="": saved.append((a, u, i)))
+    before = window.tabs.count()
+    window.connect_alias("team-box")  # cancelled: nothing opens
+    assert asked == [("team-box", "devops", "10.1.1.1")] and window.tabs.count() == before and not saved
+    answer["ok"] = True
+    assert window.ensure_team_login("team-box") and saved == [("team-box", "ana", "")]
+    # once a login exists (or the host carries a user) nobody is asked again
+    monkeypatch.setattr(teams, "my_login", lambda slug, alias: {"user": "ana", "identity_file": ""})
+    assert window.ensure_team_login("team-box") and len(asked) == 2
+    assert window.ensure_team_login("server-prod")  # personal host: never asked
+
+
+def test_local_terminal_offers_every_shell(window) -> None:
+    from PySide6.QtWidgets import QMenu
+
+    from ssh_terminal.utils.platform import ShellProfile
+
+    window.connections._shells = [ShellProfile("bash", ["/bin/bash"]), ShellProfile("zsh", ["/bin/zsh"])]
+    window.settings.default_local_shell = "zsh"
+    menu = QMenu(window)
+    window._fill_shell_menu(menu)
+    texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert texts[0].startswith("zsh") and "(default)" in texts[0] and texts[1] == "bash"
+    assert texts[-1] == "Default Shell"
+    window.set_default_shell("bash")
+    assert window.settings.default_local_shell == "bash"
+    assert window.connections.shell_profile().name == "bash"

@@ -189,3 +189,51 @@ def test_member_removes_team_host_from_own_list(server: str, isolated_home: Path
     assert member.restore_hidden() == 1
     member.sync(cfg, writer)
     assert aliases() == {"keep", "noise"}
+
+
+def test_each_member_uses_their_own_login(server: str, isolated_home: Path, tmp_path: Path) -> None:
+    from ssh_terminal.services.team_service import TeamInfo, valid_login
+
+    cfg = isolated_home / ".ssh" / "config"
+    cfg.write_text("")
+    writer = ConfigFileWriter(tmp_path / "backups")
+    owner = TeamService(MemoryCreds(), tmp_path / "owner2")
+    owner.register(server, "owner2@example.com", "password-123")
+    team = owner.create_team("Login Team")
+    mine = SSHHost(alias="app-1", hostname="10.7.0.1", user="lucas.cardoso", identity_files=["~/.ssh/lucas_key"])
+    payload = host_to_payload(mine, "Apps")
+    assert payload["user"] == "" and payload["identity_file"] == ""  # the sharer's login stays private by default
+    owner.save_host(team.id, payload)
+    shared = host_to_payload(SSHHost(alias="svc-1", hostname="10.7.0.2", user="deploy"), share_login=True)
+    assert shared["user"] == "deploy"
+    owner.save_host(team.id, shared)
+    invite = owner.invite(team.id, "member2@example.com")
+
+    creds = MemoryCreds()
+    member = TeamService(creds, tmp_path / "member2")
+    member.register(server, "member2@example.com", "password-123")
+    info: TeamInfo = member.accept_invite(invite["code"])
+    member.sync(cfg, writer)
+    hosts = {h.alias: h for h in SSHConfigSet.load(cfg).concrete_hosts()}
+    assert hosts["app-1"].user is None and hosts["svc-1"].user == "deploy"
+
+    # first access: the member types their own login; the managed file is patched right away
+    assert valid_login("bad user") and valid_login("ana", 'k"\nProxyCommand x')
+    with pytest.raises(ValueError):
+        member.set_my_login(info, "app-1", "x y")
+    member.set_my_login(info, "app-1", "ana", "~/.ssh/ana_key")
+    hosts = {h.alias: h for h in SSHConfigSet.load(cfg).concrete_hosts()}
+    assert hosts["app-1"].user == "ana" and hosts["app-1"].identity_files == ["~/.ssh/ana_key"]
+    assert hosts["app-1"].hostname == "10.7.0.1"
+
+    # kept across restarts and re-applied by every sync (never uploaded)
+    again = TeamService(creds, tmp_path / "member2")
+    assert again.my_login(info.slug, "APP-1") == {"user": "ana", "identity_file": "~/.ssh/ana_key"}
+    again.sync(cfg, writer, force=True)
+    assert {h.alias: h for h in SSHConfigSet.load(cfg).concrete_hosts()}["app-1"].user == "ana"
+    assert owner.team_hosts(team.id)[0]["user"] == ""
+
+    # back to the team's login
+    again.clear_my_login(info, "app-1")
+    again.sync(cfg, writer)
+    assert {h.alias: h for h in SSHConfigSet.load(cfg).concrete_hosts()}["app-1"].user is None

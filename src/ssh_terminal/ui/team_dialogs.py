@@ -12,8 +12,10 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -484,7 +486,7 @@ class ShareHostDialog(QDialog):
     """Pick the team (and group) to share a personal host with."""
 
     def __init__(self, alias: str, teams: list[TeamInfo], has_host_key: bool, parent: QWidget | None = None,
-                 groups: list[str] | None = None, default_group: str = "") -> None:
+                 groups: list[str] | None = None, default_group: str = "", user: str = "") -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Share “{alias}” with a team")
         self.setMinimumWidth(440)
@@ -505,9 +507,15 @@ class ShareHostDialog(QDialog):
         form.addRow("Team", self.team)
         form.addRow("Group", self.group_combo)
         layout.addLayout(form)
-        shared = ("Shared: HostName, User, Port, ProxyJump, IdentityFile path (as a hint), safe options"
+        self.share_login = QCheckBox(f"Share my login too ({user})" if user else "Share my login too")
+        self.share_login.setToolTip("Only for service accounts everyone uses (e.g. deploy). "
+                                    "Otherwise each member types their own username on first access.")
+        self.share_login.setVisible(bool(user))
+        layout.addWidget(self.share_login)
+        shared = ("Shared: HostName, Port, ProxyJump, safe options"
                   + (" and the host key fingerprint from your known_hosts" if has_host_key else "") + ".")
-        note = QLabel(shared + "\nNever shared: private keys, passwords, ProxyCommand or any command-running option.")
+        note = QLabel(shared + "\nEach member logs in with their own username (asked on first access)."
+                      "\nNever shared: private keys, passwords, ProxyCommand or any command-running option.")
         note.setWordWrap(True)
         note.setProperty("muted", True)
         layout.addWidget(note)
@@ -520,3 +528,77 @@ class ShareHostDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(ok)
         layout.addLayout(buttons)
+
+
+class TeamLoginDialog(QDialog):
+    """First access to a shared host: this member's own username, key and (optional) password.
+
+    Stored only on this computer: the username/key go to the managed team
+    config file, the password to the keyring or encrypted vault if saved.
+    """
+
+    def __init__(self, alias: str, team: str, address: str, user: str = "", identity_file: str = "",
+                 can_save_password: bool = True, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Your login for “{alias}”")
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+        header = QLabel(f"First access to {alias}")
+        header.setObjectName("DialogHeader")
+        layout.addWidget(header)
+        intro = QLabel(f"Shared by team “{team}” ({address}). Enter YOUR login on this server. "
+                       "It stays on this computer and is never sent to the team.")
+        intro.setWordWrap(True)
+        intro.setProperty("muted", True)
+        layout.addWidget(intro)
+        form = QFormLayout()
+        self.user = QLineEdit(user)
+        self.user.setPlaceholderText("your username on the server")
+        self.identity = QLineEdit(identity_file)
+        self.identity.setPlaceholderText("optional — default keys and agent are tried")
+        browse = QPushButton("…")
+        browse.setFixedWidth(32)
+        browse.clicked.connect(self._browse)
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.identity, 1)
+        key_row.addWidget(browse)
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setPlaceholderText("optional — saved on this computer; empty = asked when connecting")
+        form.addRow("Username", self.user)
+        form.addRow("Key file", key_row)
+        if can_save_password:
+            form.addRow("Password", self.password)
+        layout.addLayout(form)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        ok = mark_primary(QPushButton("Save and Connect"))
+        ok.setDefault(True)
+        ok.clicked.connect(self._submit)
+        buttons.addWidget(cancel)
+        buttons.addWidget(ok)
+        layout.addLayout(buttons)
+        self.user.setFocus()
+
+    def _browse(self) -> None:
+        from pathlib import Path
+
+        start = str(Path.home() / ".ssh")
+        path, _ = QFileDialog.getOpenFileName(self, "Private key", start)
+        if path:
+            self.identity.setText(path)
+
+    def _submit(self) -> None:
+        from ssh_terminal.services.team_service import valid_login
+
+        error = valid_login(self.user.text().strip(), self.identity.text().strip())
+        if error:
+            self.status.setText(error)
+            self.user.setFocus()
+            return
+        self.accept()

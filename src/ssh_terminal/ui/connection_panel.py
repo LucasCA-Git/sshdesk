@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ssh_terminal.models.app_settings import AppSettings
+from ssh_terminal.models.app_settings import GROUP_SEP, AppSettings, group_label, normalize_group
 from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services.team_service import TeamInfo
 from ssh_terminal.ssh.host_classifier import HostRole, host_role
@@ -47,6 +47,16 @@ SECTION_RECENT = "RECENT"
 SECTION_HOSTS = "HOSTS"
 SECTION_GIT = "GIT & SERVICES"
 SECTION_DEFAULTS = "SSH DEFAULTS"
+INDENT = 14  # px per sub-group level
+
+
+def _depth(index: QModelIndex) -> int:
+    depth = 0
+    parent = index.parent()
+    while parent.isValid():
+        depth += 1
+        parent = parent.parent()
+    return depth
 
 
 class HostDelegate(QStyledItemDelegate):
@@ -66,7 +76,9 @@ class HostDelegate(QStyledItemDelegate):
         rect: QRect = option.rect
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        depth = _depth(index)
         if kind == KIND_SECTION:
+            rect = rect.adjusted(depth * INDENT, 0, 0, 0)
             font = QFont(option.font)
             font.setPointSizeF(max(7.0, font.pointSizeF() - 1.5))
             font.setBold(True)
@@ -82,7 +94,7 @@ class HostDelegate(QStyledItemDelegate):
 
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        body = rect.adjusted(4, 1, -4, -1)
+        body = rect.adjusted(4 + max(0, depth - 1) * INDENT, 1, -4, -1)
         if selected:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(pal.selection))
@@ -160,6 +172,11 @@ class ConnectionPanel(QWidget):
     team_delete_requested = Signal(str)
     team_hide_requested = Signal(str)  # alias: remove a team host from my list only
     team_restore_requested = Signal(str)  # team slug: bring hidden hosts back
+    team_login_requested = Signal(str)  # alias: set MY username/key for a team host
+    team_login_reset_requested = Signal(str)  # alias: back to the team's login
+    subgroup_requested = Signal(str)  # parent group ("" = top level): create a (sub-)group
+    group_rename_requested = Signal(str)
+    group_delete_requested = Signal(str)
     split_view_requested = Signal(list)  # aliases
     share_group_requested = Signal(str, int)  # group name, team id
     open_split_requested = Signal(str, str)  # alias, "right" | "down" (next to the current terminal)
@@ -182,6 +199,7 @@ class ConnectionPanel(QWidget):
         self._states: dict[str, str] = {}
         self._hosts: list[SSHHost] = []
         self._editable_teams: list[TeamInfo] = []
+        self._my_login_of: Callable[[str], str] = lambda _a: ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 10, 8, 8)
@@ -242,7 +260,7 @@ class ConnectionPanel(QWidget):
         footer_layout.setSpacing(2)
         self.new_button = QPushButton("  New Connection")
         self.new_button.clicked.connect(self.new_requested)
-        self.local_button = QPushButton("  Local Terminal")
+        self.local_button = QPushButton("  Local Terminal  ▾")
         self.local_button.clicked.connect(self.local_requested)
         self.import_button = QPushButton("  Import SSH Config")
         self.import_button.clicked.connect(self.import_requested)
@@ -292,8 +310,10 @@ class ConnectionPanel(QWidget):
         team_of: Callable[[SSHHost], TeamInfo | None] | None = None,
         editable_teams: list[TeamInfo] | None = None,
         team_group_of: Callable[[str], str] | None = None,
+        my_login_of: Callable[[str], str] | None = None,
     ) -> None:
         self._settings = settings
+        self._my_login_of = my_login_of or (lambda _a: "")
         self._editable_teams = editable_teams or []
         team_of = team_of or (lambda _h: None)
         team_group_of = team_group_of or (lambda _a: "")
@@ -303,13 +323,32 @@ class ConnectionPanel(QWidget):
         by_alias = {h.alias: h for h in hosts}
         self.tree.clear()
 
-        def section(name: str, key: str | None = None) -> QTreeWidgetItem:
+        def section(name: str, key: str | None = None, parent: QTreeWidgetItem | None = None) -> QTreeWidgetItem:
             item = QTreeWidgetItem([name])
             item.setData(0, ROLE_KIND, KIND_SECTION)
             item.setData(0, ROLE_SECTION, key or name)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.tree.addTopLevelItem(item)
+            if parent is None:
+                self.tree.addTopLevelItem(item)
+            else:
+                parent.addChild(item)
             return item
+
+        def group_tree(paths: list[str], key_prefix: str, root: QTreeWidgetItem | None,
+                       title: Callable[[str], str]) -> dict[str, QTreeWidgetItem]:
+            """One section per group path, nested by "/" (parents created as needed)."""
+            nodes: dict[str, QTreeWidgetItem] = {}
+
+            def node(path: str) -> QTreeWidgetItem:
+                if path not in nodes:
+                    parent_path, _sep, leaf = path.rpartition(GROUP_SEP)
+                    parent = node(parent_path) if parent_path else root
+                    nodes[path] = section(title(leaf) if parent is not None else title(path), key_prefix + path, parent)
+                return nodes[path]
+
+            for path in paths:
+                node(path)
+            return nodes
 
         def host_item(parent: QTreeWidgetItem, host: SSHHost, kind: str | None = None) -> None:
             if kind is None:
@@ -339,7 +378,10 @@ class ConnectionPanel(QWidget):
             if team is not None:
                 item.setData(0, ROLE_TEAM, team.name)
                 item.setData(0, ROLE_TEAM_EDIT, team.can_edit)
-                item.setToolTip(0, item.toolTip(0) + f"\n\nShared by team “{team.name}”.")
+                mine = self._my_login_of(host.alias)
+                note = (f"You log in as {mine} (your own login, kept on this computer)." if mine
+                        else "Your username is asked on first access." if not host.user else "")
+                item.setToolTip(0, item.toolTip(0) + f"\n\nShared by team “{team.name}”." + (f"\n{note}" if note else ""))
             item.setData(0, ROLE_FAVORITE, settings.is_favorite(host.alias))
             group = settings.group_of(host.alias) or ""
             item.setData(0, ROLE_SEARCH, " ".join([host.alias, *host.aliases, host.hostname or "", host.user or "", group]).lower())
@@ -358,29 +400,31 @@ class ConnectionPanel(QWidget):
             for host in recent:
                 host_item(sec, host)
         grouped: set[str] = set()
-        for group_name in sorted(settings.groups):
-            members = [by_alias[a] for a in settings.groups[group_name] if a in by_alias]
-            if not members:
-                continue
-            sec = section(group_name.upper(), f"group:{group_name}")
+        # personal groups, nested: sub-groups first, then the hosts of each level
+        nodes = group_tree(settings.group_paths(), "group:", None, str.upper)
+        for group_name, sec in nodes.items():
+            members = [by_alias[a] for a in settings.groups.get(group_name, []) if a in by_alias]
             for host in sorted(members, key=lambda h: h.alias.lower()):
                 host_item(sec, host)
                 grouped.add(host.alias)
-        # team hosts: one section per team, and per group inside the team
-        team_sections: dict[tuple[str, str], tuple[TeamInfo, list[SSHHost]]] = {}
+        # team hosts: one section per team, with the team's (sub-)groups inside
+        by_team: dict[str, tuple[TeamInfo, list[SSHHost]]] = {}
         for host in hosts:
             team = teams_by_alias.get(host.alias)
             if team is not None and host.alias not in grouped:
-                key = (team.slug, team_group_of(host.alias))
-                team_sections.setdefault(key, (team, []))[1].append(host)
-        for (slug, group), (team, members) in sorted(
-            team_sections.items(), key=lambda kv: (kv[1][0].name.lower(), kv[0][1] != "", kv[0][1].lower())
-        ):
-            title = f"TEAM · {team.name.upper()}" + (f" › {group.upper()}" if group else "")
-            sec = section(title, f"team:{slug}" + (f":{group}" if group else ""))
-            for host in sorted(members, key=lambda h: h.alias.lower()):
-                host_item(sec, host)
+                by_team.setdefault(team.slug, (team, []))[1].append(host)
+        for slug, (team, members) in sorted(by_team.items(), key=lambda kv: kv[1][0].name.lower()):
+            root = section(f"TEAM · {team.name.upper()}", f"team:{slug}")
+            path_of = {h.alias: normalize_group(team_group_of(h.alias)) for h in members}
+            paths = sorted({p for p in path_of.values() if p}, key=lambda p: [x.lower() for x in p.split(GROUP_SEP)])
+            team_nodes = group_tree(paths, f"team:{slug}:", root, str.upper)
+            for host in sorted(members, key=lambda h: h.alias.lower()):  # grouped hosts go under their group
+                if path_of[host.alias]:
+                    host_item(team_nodes[path_of[host.alias]], host)
                 grouped.add(host.alias)
+            for host in sorted(members, key=lambda h: h.alias.lower()):  # then the team's ungrouped hosts
+                if not path_of[host.alias]:
+                    host_item(root, host)
         ungrouped = [h for h in hosts if h.alias not in grouped]
         servers = [h for h in ungrouped if host_role(h, settings.host_roles) is HostRole.SERVER]
         git_hosts = [h for h in ungrouped if host_role(h, settings.host_roles) is HostRole.GIT]
@@ -397,41 +441,78 @@ class ConnectionPanel(QWidget):
             for host in defaults:
                 host_item(sec, host, KIND_WILDCARD)
 
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
+        for item in self._sections():
             item.setExpanded(item.data(0, ROLE_SECTION) not in settings.collapsed_sections)
         self.empty_label.setVisible(not hosts)
         self._apply_filter(self.search.text())
+
+    @staticmethod
+    def _host_count(sec: QTreeWidgetItem) -> int:
+        count = 0
+        for j in range(sec.childCount()):
+            child = sec.child(j)
+            count += ConnectionPanel._host_count(child) if child.data(0, ROLE_KIND) == KIND_SECTION else 1
+        return count
 
     def _section_state(self, item: QTreeWidgetItem, expanded: bool) -> None:
         if item.data(0, ROLE_KIND) == KIND_SECTION and not self.search.text():
             self.section_toggled.emit(item.data(0, ROLE_SECTION), expanded)
 
+    def _sections(self, parent: QTreeWidgetItem | None = None) -> list[QTreeWidgetItem]:
+        """All section items, depth-first (sub-groups included)."""
+        items = ([self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())] if parent is None
+                 else [parent.child(i) for i in range(parent.childCount())])
+        out: list[QTreeWidgetItem] = []
+        for item in items:
+            if item.data(0, ROLE_KIND) == KIND_SECTION:
+                out.append(item)
+                out.extend(self._sections(item))
+        return out
+
+    def _filter_section(self, sec: QTreeWidgetItem, query: str) -> int:
+        """Hide non-matching rows below ``sec``; returns how many hosts stay visible."""
+        visible = 0
+        for j in range(sec.childCount()):
+            child = sec.child(j)
+            if child.data(0, ROLE_KIND) == KIND_SECTION:
+                inner = self._filter_section(child, query)
+                child.setHidden(bool(query) and inner == 0)
+                visible += inner
+                continue
+            match = not query or query in (child.data(0, ROLE_SEARCH) or "")
+            child.setHidden(not match)
+            visible += int(match)
+        return visible
+
     def _apply_filter(self, text: str) -> None:
         query = text.strip().lower()
         for i in range(self.tree.topLevelItemCount()):
             sec = self.tree.topLevelItem(i)
-            visible_children = 0
-            for j in range(sec.childCount()):
-                child = sec.child(j)
-                match = not query or query in (child.data(0, ROLE_SEARCH) or "")
-                child.setHidden(not match)
-                visible_children += int(match)
-            sec.setHidden(bool(query) and visible_children == 0)
+            sec.setHidden(bool(query) and self._filter_section(sec, query) == 0)
+        for sec in self._sections():
             if query:
                 sec.setExpanded(True)
             else:
                 sec.setExpanded(sec.data(0, ROLE_SECTION) not in self._settings.collapsed_sections)
 
     def _first_visible_host(self) -> str | None:
+        def walk(parent: QTreeWidgetItem) -> str | None:
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                if child.isHidden():
+                    continue
+                if child.data(0, ROLE_KIND) == KIND_SECTION:
+                    found = walk(child)
+                    if found:
+                        return found
+                elif child.data(0, ROLE_KIND) == KIND_HOST:
+                    return child.data(0, ROLE_ALIAS)
+            return None
+
         for i in range(self.tree.topLevelItemCount()):
             sec = self.tree.topLevelItem(i)
-            if sec.isHidden():
-                continue
-            for j in range(sec.childCount()):
-                child = sec.child(j)
-                if not child.isHidden() and child.data(0, ROLE_KIND) == KIND_HOST:
-                    return child.data(0, ROLE_ALIAS)
+            if not sec.isHidden() and (found := walk(sec)):
+                return found
         return None
 
     def _connect_first_match(self) -> None:
@@ -462,13 +543,21 @@ class ConnectionPanel(QWidget):
                 slug = key.split(":")[1]
                 menu.addAction("Restore Hosts Removed from My List", lambda s=slug: self.team_restore_requested.emit(s))
                 menu.addSeparator()
-            if isinstance(key, str) and key.startswith("group:") and self._editable_teams:
+            if isinstance(key, str) and key.startswith("group:"):
                 group = key.removeprefix("group:")
-                count = item.childCount()
-                share = menu.addMenu(icon("server"), f"Share Group with Team ({count} host{'s' if count != 1 else ''})")
-                for team in self._editable_teams:
-                    share.addAction(team.name, lambda t=team.id, g=group: self.share_group_requested.emit(g, t))
+                menu.addAction(icon("plus"), "New Sub-group…", lambda g=group: self.subgroup_requested.emit(g))
+                menu.addAction("Rename Group…", lambda g=group: self.group_rename_requested.emit(g))
+                menu.addAction(icon("x", current_palette().danger), "Delete Group (keeps the hosts)",
+                               lambda g=group: self.group_delete_requested.emit(g))
                 menu.addSeparator()
+                if self._editable_teams:
+                    count = self._host_count(item)
+                    share = menu.addMenu(icon("server"), f"Share Group with Team ({count} host{'s' if count != 1 else ''})")
+                    for team in self._editable_teams:
+                        share.addAction(team.name, lambda t=team.id, g=group: self.share_group_requested.emit(g, t))
+                    menu.addSeparator()
+            else:
+                menu.addAction(icon("plus"), "New Group…", lambda: self.subgroup_requested.emit(""))
             menu.addAction(icon("plus"), "New Connection", self.new_requested.emit)
             menu.addAction(icon("refresh"), "Reload SSH Config", self.reload_requested.emit)
             menu.exec(self.tree.viewport().mapToGlobal(pos))
@@ -518,6 +607,11 @@ class ConnectionPanel(QWidget):
             else:
                 managed = menu.addAction(f"Managed by team “{team_name}” (read-only)")
                 managed.setEnabled(False)
+            mine = self._my_login_of(alias)
+            menu.addAction(f"My Login on This Host ({mine})…" if mine else "Set My Login…",
+                           lambda: self.team_login_requested.emit(alias))
+            if mine:
+                menu.addAction("Use the Team's Login", lambda: self.team_login_reset_requested.emit(alias))
             menu.addAction("Duplicate as Personal Host", lambda: self.duplicate_requested.emit(alias))
         else:
             menu.addAction("Edit", lambda: self.edit_requested.emit(alias))
@@ -531,15 +625,15 @@ class ConnectionPanel(QWidget):
         menu.addAction(icon("star"), fav_text, lambda: self.favorite_toggled.emit(alias))
         group_menu = menu.addMenu("Move to Group")
         current = self._settings.group_of(alias)
-        for name in sorted(self._settings.groups):
-            action = QAction(name, group_menu)
+        for name in self._settings.group_paths():
+            action = QAction(group_label(name), group_menu)
             action.setCheckable(True)
             action.setChecked(name == current)
             action.triggered.connect(lambda _c=False, n=name: self.group_set.emit(alias, n))
             group_menu.addAction(action)
         if self._settings.groups:
             group_menu.addSeparator()
-        group_menu.addAction("New Group...", lambda: self.group_requested.emit(alias))
+        group_menu.addAction("New Group…  (Parent/Sub-group)", lambda: self.group_requested.emit(alias))
         if current:
             group_menu.addAction("Remove from Group", lambda: self.group_set.emit(alias, None))
         menu.addSeparator()

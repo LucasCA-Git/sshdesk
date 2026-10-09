@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from ssh_terminal import __version__
+from ssh_terminal.models.app_settings import normalize_group
 from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services.host_identity import alias_key, same_server
 from ssh_terminal.ssh.config_parser import ConfigLine, LineKind, SSHConfigDocument, SSHConfigSet, quote_argument
@@ -186,6 +187,25 @@ def validate_remote_host(host: dict[str, Any]) -> str | None:
     return None
 
 
+def valid_login(user: str, identity_file: str = "") -> str | None:
+    """Return an error message if a personal login for a team host is unsafe to write."""
+    if not user or not _SAFE["user"].match(user):
+        return "Use letters, digits, dot, dash, underscore or @ for the username."
+    if any(ord(c) < 32 or c in '"#' for c in identity_file):
+        return "The key file path contains characters that are not allowed."
+    return None
+
+
+def apply_login(host: dict[str, Any], login: dict[str, str] | None) -> dict[str, Any]:
+    """A team host as THIS member uses it: their own User/IdentityFile replace the shared ones."""
+    if not login or not login.get("user"):
+        return host
+    merged = dict(host)
+    merged["user"] = login["user"]
+    merged["identity_file"] = login.get("identity_file", "")
+    return merged
+
+
 def render_team_config(team: dict[str, Any], hosts: list[dict[str, Any]], known_hosts_file: Path) -> str:
     lines = [
         f"# SSHDesk team: {team['name']} (role: {team['role']})",
@@ -225,8 +245,14 @@ def known_hosts_lines(hosts: list[dict[str, Any]]) -> list[str]:
     return out
 
 
-def host_to_payload(host: SSHHost, group: str = "", host_keys: list[str] | None = None) -> dict[str, Any]:
-    """Personal host -> team host payload (only shareable fields, never secrets)."""
+def host_to_payload(host: SSHHost, group: str = "", host_keys: list[str] | None = None,
+                    share_login: bool = False) -> dict[str, Any]:
+    """Personal host -> team host payload (only shareable fields, never secrets).
+
+    By default the sharer's own login (User and IdentityFile path) is NOT
+    shared: every member types their own username on first access. Set
+    ``share_login`` for service accounts everyone uses (e.g. ``deploy``).
+    """
     options: list[list[str]] = []
     for key, value in [
         ("ServerAliveInterval", host.server_alive_interval),
@@ -250,10 +276,10 @@ def host_to_payload(host: SSHHost, group: str = "", host_keys: list[str] | None 
     return {
         "alias": host.alias,
         "hostname": host.target_host,
-        "user": host.user or "",
+        "user": (host.user or "") if share_login else "",
         "port": host.effective_port,
         "proxy_jump": host.proxy_jump or "",
-        "identity_file": host.identity_files[0] if host.identity_files else "",
+        "identity_file": (host.identity_files[0] if host.identity_files else "") if share_login else "",
         "group": group,
         "description": host.comment or "",
         "options": options,
@@ -275,6 +301,8 @@ class TeamService:
         self._etag: str | None = None
         self.host_groups: dict[str, str] = {}  # team host alias -> group name (from the last sync)
         self.hidden_hosts: set[str] = set()  # "team-slug/alias" removed by this user from their own list
+        # "team-slug/alias" -> {"user", "identity_file"}: this member's own login (local only, never uploaded)
+        self.my_logins: dict[str, dict[str, str]] = {}
         self._load_state()
 
     # -- persistence of non-secret state ---------------------------------- #
@@ -295,6 +323,51 @@ class TeamService:
         hidden = data.get("hidden_hosts")
         if isinstance(hidden, list):
             self.hidden_hosts = {str(x) for x in hidden}
+        logins = data.get("my_logins")
+        if isinstance(logins, dict):
+            self.my_logins = {
+                str(k): {"user": str(v.get("user", "")), "identity_file": str(v.get("identity_file", ""))}
+                for k, v in logins.items()
+                if isinstance(v, dict) and valid_login(str(v.get("user", "")), str(v.get("identity_file", ""))) is None
+            }
+
+    # -- this member's own login for team hosts (local only) ------------------ #
+    def my_login(self, slug: str, alias: str) -> dict[str, str] | None:
+        return self.my_logins.get(self._hidden_key(slug, alias))
+
+    def set_my_login(self, team: TeamInfo, alias: str, user: str, identity_file: str = "") -> None:
+        """Use your own username (and key) for a team host; rewrites the managed file right away."""
+        user, identity_file = user.strip(), identity_file.strip()
+        error = valid_login(user, identity_file)
+        if error:
+            raise ValueError(error)
+        self.my_logins[self._hidden_key(team.slug, alias)] = {"user": user, "identity_file": identity_file}
+        self._save_state()
+        self._patch_login(self.team_file(team.slug), alias, user, identity_file)
+
+    def clear_my_login(self, team: TeamInfo, alias: str) -> None:
+        """Back to the team's login on the next sync."""
+        if self.my_logins.pop(self._hidden_key(team.slug, alias), None) is not None:
+            self._etag = None  # the next sync rewrites the file from the server
+            self._save_state()
+
+    @staticmethod
+    def _patch_login(path: Path, alias: str, user: str, identity_file: str) -> None:
+        if not path.exists():
+            return
+        doc = SSHConfigDocument.load(path)
+        block = next((b for b in doc.host_blocks() if alias_key(alias) in {alias_key(p) for p in b.patterns}), None)
+        if block is None:
+            return
+        block.lines = [ln for ln in block.lines
+                       if not (ln.kind is LineKind.OPTION and ln.key.lower() in ("user", "identityfile"))]
+        at = next((i + 1 for i, ln in enumerate(block.lines)
+                   if ln.kind is LineKind.OPTION and ln.key.lower() == "hostname"), 0)
+        new = [ConfigLine.option("User", user)]
+        if identity_file:
+            new.append(ConfigLine.option("IdentityFile", quote_argument(identity_file)))
+        block.lines[at:at] = new
+        path.write_text(doc.render(), encoding="utf-8")
 
     # -- hosts removed from "my list" (local only, never sent to the server) -- #
     @staticmethod
@@ -346,6 +419,7 @@ class TeamService:
             "etag": self._etag,
             "host_groups": self.host_groups,
             "hidden_hosts": sorted(self.hidden_hosts),
+            "my_logins": self.my_logins,
         }
         self.state_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -407,6 +481,7 @@ class TeamService:
         self._etag = None
         self.host_groups = {}
         self.hidden_hosts = set()
+        self.my_logins = {}
         self.clear_team_files()
         self._save_state()
 
@@ -562,10 +637,11 @@ class TeamService:
                 seen_aliases.add(alias_key(host["alias"]))
                 accepted.append((team["name"], host))
                 usable.append(host)
-                if host.get("group"):
-                    self.host_groups[host["alias"]] = " ".join(str(host["group"]).split())
+                if normalize_group(str(host.get("group") or "")):
+                    self.host_groups[host["alias"]] = normalize_group(str(host["group"]))
             path = self.team_file(team["slug"])
-            path.write_text(render_team_config(team, usable, self.known_hosts_file), encoding="utf-8")
+            mine = [apply_login(h, self.my_login(team["slug"], h["alias"])) for h in usable]
+            path.write_text(render_team_config(team, mine, self.known_hosts_file), encoding="utf-8")
             wanted_files.add(path.name)
             all_known.extend(known_hosts_lines(usable))
             result.hosts_written += len(usable)

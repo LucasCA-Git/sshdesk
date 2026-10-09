@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from ssh_terminal import __app_name__, __version__
 from ssh_terminal.errors import ConfigError, FriendlyError, describe_exception
+from ssh_terminal.models.app_settings import GROUP_SEP, group_label, normalize_group
 from ssh_terminal.models.connection import ConnectionKind, ConnectionSpec, SessionState
 from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services import diagnostics_service
@@ -57,7 +58,7 @@ from ssh_terminal.ui.info_dialogs import (
 from ssh_terminal.ui.port_forward_dialog import PortForwardDialog
 from ssh_terminal.ui.prompter import QtAuthPrompter
 from ssh_terminal.ui.settings_dialog import SettingsDialog
-from ssh_terminal.ui.team_dialogs import AccountDialog, ShareHostDialog, TeamsDialog
+from ssh_terminal.ui.team_dialogs import AccountDialog, ShareHostDialog, TeamLoginDialog, TeamsDialog
 from ssh_terminal.ui.terminal_tabs import PaneBase, TerminalPane, TerminalTabs, state_color
 from ssh_terminal.ui.test_connection_dialog import TestConnectionDialog
 from ssh_terminal.ui.theme import app_icon, apply_theme, current_palette, icon
@@ -96,8 +97,8 @@ class EmptyState(QWidget):
         row.addStretch(1)
         new = mark_primary(QPushButton("New Connection"))
         new.clicked.connect(window.new_connection)
-        local = QPushButton("Local Terminal")
-        local.clicked.connect(lambda: window.open_local())
+        local = QPushButton("Local Terminal  ▾")
+        local.clicked.connect(lambda: window.choose_local_shell(local))
         row.addWidget(new)
         row.addWidget(local)
         row.addStretch(1)
@@ -328,9 +329,43 @@ class MainWindow(QMainWindow):
         help_menu.addAction(acts["about"])
 
     def _fill_local_menu(self) -> None:
-        self.local_menu.clear()
-        for shell in self.connections.shells:
-            self.local_menu.addAction(icon("terminal"), shell.name, lambda n=shell.name: self.open_local(n))
+        self._fill_shell_menu(self.local_menu)
+
+    def _fill_shell_menu(self, menu: QMenu) -> None:
+        """Every detected shell, the default first; plus a way to change the default."""
+        menu.clear()
+        default = self.connections.shell_profile().name
+        shells = self.connections.shells
+        for shell in sorted(shells, key=lambda sh: sh.name != default):
+            action = menu.addAction(icon("terminal"), f"{shell.name}   (default)" if shell.name == default else shell.name,
+                                    lambda n=shell.name: self.open_local(n))
+            if shell.name == default:
+                menu.setDefaultAction(action)
+        if len(shells) > 1:
+            menu.addSeparator()
+            choose = menu.addMenu("Default Shell")
+            for shell in shells:
+                action = choose.addAction(shell.name, lambda n=shell.name: self.set_default_shell(n))
+                action.setCheckable(True)
+                action.setChecked(shell.name == default)
+
+    def choose_local_shell(self, anchor: QWidget | None = None) -> None:
+        """"Local Terminal" buttons: pick the shell (PowerShell, cmd, WSL, Git Bash, bash, zsh…)."""
+        if len(self.connections.shells) <= 1:
+            self.open_local()
+            return
+        menu = QMenu(self)
+        self._fill_shell_menu(menu)
+        pos = anchor.mapToGlobal(anchor.rect().topLeft()) if anchor is not None else QCursor.pos()
+        size = menu.sizeHint()
+        if anchor is not None:  # open upwards from the sidebar footer, downwards otherwise
+            pos = pos - QPoint(0, size.height()) if pos.y() - size.height() > 0 else anchor.mapToGlobal(anchor.rect().bottomLeft())
+        menu.exec(pos)
+
+    def set_default_shell(self, name: str) -> None:
+        self.settings.default_local_shell = name
+        self.save_settings()
+        self.statusBar().showMessage(f"Default local shell: {name} (Ctrl+T and the + button open it).", 5000)
 
     def _connect_signals(self) -> None:
         sb = self.sidebar
@@ -353,10 +388,15 @@ class MainWindow(QMainWindow):
         sb.team_delete_requested.connect(self.delete_team_host)
         sb.team_hide_requested.connect(self.hide_team_host)
         sb.team_restore_requested.connect(self.restore_team_hosts)
+        sb.team_login_requested.connect(self.set_team_login)
+        sb.team_login_reset_requested.connect(self.reset_team_login)
+        sb.subgroup_requested.connect(self.new_subgroup)
+        sb.group_rename_requested.connect(self.rename_group)
+        sb.group_delete_requested.connect(self.delete_group)
         sb.git_test_requested.connect(self.test_git_host)
         sb.copy_git_remote_requested.connect(self.copy_git_remote)
         sb.new_requested.connect(self.new_connection)
-        sb.local_requested.connect(lambda: self.open_local())
+        sb.local_requested.connect(lambda: self.choose_local_shell(self.sidebar.local_button))
         sb.settings_requested.connect(self.open_settings)
         sb.import_requested.connect(self.import_config)
         sb.reload_requested.connect(lambda: self.reload_config(show_message=True))
@@ -496,8 +536,14 @@ class MainWindow(QMainWindow):
             team_of=lambda h: teams.team_for_path(h.source_file),
             editable_teams=[t for t in teams.teams if t.can_edit] if teams.signed_in else [],
             team_group_of=teams.group_of,
+            my_login_of=self._my_login_user,
         )
         self._update_sidebar_states()
+
+    def _my_login_user(self, alias: str) -> str:
+        team = self._team_of_alias(alias)
+        login = self.ctx.teams.my_login(team.slug, alias) if team is not None else None
+        return login["user"] if login else ""
 
     def import_config(self) -> None:
         cfg = self.ctx.config
@@ -754,9 +800,46 @@ class MainWindow(QMainWindow):
         self._refresh_sidebar()
 
     def new_group_for(self, alias: str) -> None:
-        name, ok = QInputDialog.getText(self, "New group", "Group name (visual only, not saved in the SSH config):")
-        if ok and name.strip():
-            self.set_group(alias, name.strip())
+        current = self.settings.group_of(alias) or ""
+        name, ok = QInputDialog.getText(
+            self, "New group", "Group name — use / for a sub-group, e.g. Production/Web\n"
+            "(visual only, not saved in the SSH config):", text=f"{current}/" if current else "")
+        if ok and normalize_group(name):
+            self.set_group(alias, name)
+
+    def new_subgroup(self, parent: str = "") -> None:
+        """Create an empty (sub-)group; move hosts into it with right-click › Move to Group."""
+        where = f" inside “{group_label(parent)}”" if parent else ""
+        name, ok = QInputDialog.getText(self, "New sub-group" if parent else "New group", f"Name of the new group{where}:")
+        if not ok or not normalize_group(name):
+            return
+        path = self.settings.add_group(f"{parent}{GROUP_SEP}{name}" if parent else name)
+        self.save_settings()
+        self._refresh_sidebar()
+        self.statusBar().showMessage(f"Group “{group_label(path)}” created — right-click a host › Move to Group.", 6000)
+
+    def rename_group(self, group: str) -> None:
+        name, ok = QInputDialog.getText(self, "Rename group", "New name (use / to move it under another group):", text=group)
+        if ok and normalize_group(name) and normalize_group(name) != group:
+            new = self.settings.rename_group(group, name)
+            if new == group:
+                show_error(self, FriendlyError("Cannot rename group", "A group cannot be moved inside itself."))
+                return
+            self.settings.collapsed_sections = [
+                f"group:{new}{k[len('group:' + group):]}" if k == f"group:{group}" or k.startswith(f"group:{group}{GROUP_SEP}") else k
+                for k in self.settings.collapsed_sections]
+            self.save_settings()
+            self._refresh_sidebar()
+
+    def delete_group(self, group: str) -> None:
+        subs = len(self.settings.subgroups(group))
+        extra = f" and its {subs} sub-group(s)" if subs else ""
+        if not confirm(self, "Delete group", f"Delete “{group_label(group)}”{extra}?\n\n"
+                       "Only the grouping is removed: the hosts stay in your list and in the SSH config.", "Delete"):
+            return
+        self.settings.delete_group(group)
+        self.save_settings()
+        self._refresh_sidebar()
 
     def set_role(self, alias: str, role: str) -> None:
         """Manual override of the server/Git classification (UI metadata only)."""
@@ -863,6 +946,8 @@ class MainWindow(QMainWindow):
     # Connections / tabs
     # ------------------------------------------------------------------ #
     def connect_alias(self, alias: str, new_tab: bool = True) -> None:
+        if not self.ensure_team_login(alias):
+            return
         if not new_tab and self.is_git_host(alias):
             self.test_git_host(alias)  # Git endpoints have no shell to open
             return
@@ -877,6 +962,53 @@ class MainWindow(QMainWindow):
 
     def open_local(self, shell: str = "") -> None:
         self.open_spec(ConnectionSpec.local(shell))
+
+    # -- your own login for team hosts ------------------------------------- #
+    def ensure_team_login(self, alias: str) -> bool:
+        """A team host shared without a login asks this member's own username on first access.
+
+        Returns False when the user cancels (nothing is opened).
+        """
+        team = self._team_of_alias(alias)
+        host = self.ctx.config.get_host(alias)
+        if team is None or host is None or host.user or self.ctx.teams.my_login(team.slug, alias):
+            return True
+        return self.set_team_login(alias)
+
+    def set_team_login(self, alias: str) -> bool:
+        """Ask (or change) the username/key/password YOU use for a team host. Local only."""
+        team = self._team_of_alias(alias)
+        host = self.ctx.config.get_host(alias)
+        if team is None or host is None:
+            return True
+        mine = self.ctx.teams.my_login(team.slug, alias) or {}
+        can_save = self.settings.allow_keyring and getattr(self.ctx.credentials, "available", False)
+        dlg = TeamLoginDialog(alias, team.name, host.target_host or alias, mine.get("user", host.user or ""),
+                              mine.get("identity_file", ""), can_save, self)
+        if not dlg.exec():
+            return False
+        try:
+            self.ctx.teams.set_my_login(team, alias, dlg.user.text(), dlg.identity.text())
+        except (OSError, ValueError, ConfigError) as exc:
+            show_error(self, FriendlyError("Could not save your login", str(exc)))
+            return False
+        self.reload_config()
+        password = dlg.password.text()
+        if password and can_save:
+            try:
+                resolved = self.ctx.ssh.resolve(alias)
+                self.ctx.credentials.set_password(resolved.user, resolved.hostname, resolved.port, password)
+            except (OSError, ConfigError) as exc:
+                log.warning("Could not save the password for %s: %s", alias, exc)
+        self.statusBar().showMessage(f"“{alias}”: you log in as {dlg.user.text().strip()} (saved on this computer only).", 6000)
+        return True
+
+    def reset_team_login(self, alias: str) -> None:
+        team = self._team_of_alias(alias)
+        if team is None:
+            return
+        self.ctx.teams.clear_my_login(team, alias)
+        self.sync_teams(force=True)
 
     def _make_pane(self, spec: ConnectionSpec) -> TerminalPane:
         session = TerminalSession(
@@ -1114,7 +1246,7 @@ class MainWindow(QMainWindow):
                 target = menu.addMenu(f"More Hosts ({len(hosts) - 20})")
             name = "star-filled" if self.settings.is_favorite(host.alias) else "server"
             label = host.alias if not host.hostname or host.hostname == host.alias else f"{host.alias}   ·   {host.hostname}"
-            target.addAction(icon(name), label, lambda a=host.alias: slot(a))
+            target.addAction(icon(name), label, lambda a=host.alias: self.ensure_team_login(a) and slot(a))
 
     def _fill_split_menu(self, menu: QMenu, pane: PaneBase, orientation: Qt.Orientation) -> None:
         """Choices for the new pane: same connection, a local shell, any SSH host, or files (SFTP)."""
@@ -1193,13 +1325,16 @@ class MainWindow(QMainWindow):
         return right
 
     def files_alias(self, alias: str, where: str) -> None:
-        self.open_files(ConnectionSpec.ssh(alias), where)
+        if self.ensure_team_login(alias):
+            self.open_files(ConnectionSpec.ssh(alias), where)
 
     def split_alias(self, alias: str, where: str) -> None:
         """Sidebar "Open to the Right / Below": host next to the current terminal."""
         pane = self.tabs.current_pane()
         if pane is None:
             self.connect_alias(alias, new_tab=True)
+            return
+        if not self.ensure_team_login(alias):
             return
         orientation = Qt.Orientation.Vertical if where == "down" else Qt.Orientation.Horizontal
         self.split_with(pane, ConnectionSpec.ssh(alias), orientation)
@@ -1228,7 +1363,7 @@ class MainWindow(QMainWindow):
 
     def open_split_view(self, aliases: list[str]) -> None:
         """Open several hosts in one tab, laid out as a grid (like a split view)."""
-        aliases = [a for a in aliases if a]
+        aliases = [a for a in aliases if a and self.ensure_team_login(a)]
         if not aliases:
             return
         first = self.open_spec(ConnectionSpec.ssh(aliases[0]))
@@ -1411,15 +1546,15 @@ class MainWindow(QMainWindow):
         if host is None or not teams:
             return
         keys = self._host_keys_for(alias)
-        groups = [*self.settings.groups, *self.ctx.teams.host_groups.values()]
+        groups = [*self.settings.group_paths(), *self.ctx.teams.host_groups.values()]
         dlg = ShareHostDialog(alias, teams, bool(keys), self, groups=groups,
-                              default_group=self.settings.group_of(alias) or "")
+                              default_group=self.settings.group_of(alias) or "", user=host.user or "")
         dlg.team.setCurrentIndex(max(0, dlg.team.findData(team_id)))
         if not dlg.exec():
             return
         chosen = dlg.team.currentData()
         group = " ".join(dlg.group.text().split())
-        payload = host_to_payload(host, group, keys)
+        payload = host_to_payload(host, group, keys, share_login=dlg.share_login.isChecked())
 
         def shared(_r: object) -> None:
             where = f" in group “{group}”" if group else ""
@@ -1434,6 +1569,9 @@ class MainWindow(QMainWindow):
                 if twin is not None:
                     raise ValueError(f"This server is already in the team as “{twin['alias']}”. "
                                      "Edit that host in the team instead of sharing a second copy.")
+            if same_name is not None and not dlg.share_login.isChecked():
+                payload["user"] = same_name.get("user", "")  # keep the team's login as it is
+                payload["identity_file"] = same_name.get("identity_file", "")
             return self.ctx.teams.save_host(chosen, payload, same_name["id"] if same_name else None)
 
         run_async(upsert, on_done=shared,
@@ -1444,22 +1582,25 @@ class MainWindow(QMainWindow):
         team = next((t for t in self.ctx.teams.teams if t.id == team_id and t.can_edit), None)
         if team is None:
             return
-        hosts = [h for a in self.settings.groups.get(group, [])
+        members = [(a, g) for g in self.settings.subgroups(group, include_self=True) for a in self.settings.groups.get(g, [])]
+        hosts = [(h, g) for a, g in members
                  if (h := self.ctx.config.get_host(a)) is not None and self._team_of_alias(a) is None]
         if not hosts:
             self.statusBar().showMessage(f"“{group}” has no personal hosts to share.", 6000)
             return
-        names = ", ".join(h.alias for h in hosts[:6]) + ("…" if len(hosts) > 6 else "")
+        names = ", ".join(h.alias for h, _g in hosts[:6]) + ("…" if len(hosts) > 6 else "")
         if not confirm(self, "Share group with team",
                        f"Share {len(hosts)} host(s) of “{group}” with team “{team.name}”?\n\n{names}\n\n"
                        f"Members will see them under “{team.name} › {group}”. Hosts that already exist in the team "
-                       "are updated. Passwords and private keys are never shared.", ok_text="Share"):
+                       "are updated and sub-groups are kept. Each member logs in with their own username "
+                       "(asked on first access). Passwords and private keys are never shared.", ok_text="Share"):
             return
-        payloads = [host_to_payload(h, group, self._host_keys_for(h.alias)) for h in hosts]
+        payloads = [host_to_payload(h, g, self._host_keys_for(h.alias)) for h, g in hosts]
 
         def upload() -> tuple[int, int, list[str]]:
             team_hosts = self.ctx.teams.team_hosts(team.id)
             existing = {alias_key(h["alias"]): h["id"] for h in team_hosts}
+            records = {h["id"]: h for h in team_hosts}
             created = updated = 0
             errors: list[str] = []
             for payload in payloads:
@@ -1468,6 +1609,9 @@ class MainWindow(QMainWindow):
                 if twin is not None:
                     errors.append(f"{payload['alias']}: already in the team as “{twin['alias']}” (skipped)")
                     continue
+                if host_id:  # updating: keep the login the team already shares
+                    payload["user"] = records[host_id].get("user", "")
+                    payload["identity_file"] = records[host_id].get("identity_file", "")
                 try:
                     saved = self.ctx.teams.save_host(team.id, payload, host_id)
                     if isinstance(saved, dict) and saved.get("id"):
@@ -1513,7 +1657,12 @@ class MainWindow(QMainWindow):
             record = self._team_host_record(team, alias)
             if record is None:
                 raise TeamApiError(f"“{alias}” no longer exists in team {team.name}")
-            payload = host_to_payload(edited, record.get("group", ""), record.get("host_keys", []))
+            payload = host_to_payload(edited, record.get("group", ""), record.get("host_keys", []), share_login=True)
+            mine = self.ctx.teams.my_login(team.slug, alias)
+            if mine:  # the form showed MY login: never upload my key path; my user only if it was changed
+                if (edited.user or "") == mine["user"]:
+                    payload["user"] = record.get("user", "")
+                payload["identity_file"] = record.get("identity_file", "")
             self.ctx.teams.save_host(team.id, payload, record["id"])
 
         run_async(save, on_done=lambda _r: self.sync_teams(force=True),
