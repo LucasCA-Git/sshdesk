@@ -9,10 +9,15 @@ on:
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        include:
+          - { name: Windows, os: windows-latest, artifact: SSHDesk-Windows }
+          - { name: Linux, os: ubuntu-22.04, artifact: SSHDesk-Linux }
+          - { name: macOS (Apple Silicon), os: macos-latest, artifact: SSHDesk-macOS-arm64 }
+          - { name: macOS (Intel), os: macos-15-intel, artifact: SSHDesk-macOS-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +39,18 @@ jobs:
         run: python -m pytest
       - name: Build executable
         run: pyinstaller --noconfirm --clean sshdesk.spec
+      - name: Package .dmg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          VERSION=$(python -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('src/ssh_terminal/__init__.py').read()).group(1))")
+          ARCH=$(uname -m)
+          STAGE=$(mktemp -d)
+          cp -R dist/SSHDesk.app "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "SSHDesk $VERSION" -srcfolder "$STAGE" -ov -format UDZO "dist/SSHDesk-$VERSION-macos-$ARCH.dmg"
+          # keep only the .dmg in the artifact (the .app is inside it)
+          rm -rf dist/SSHDesk dist/SSHDesk.app
       - uses: actions/upload-artifact@v4
         with:
-          name: SSHDesk-${{ runner.os }}
+          name: ${{ matrix.artifact }}
           path: dist/*

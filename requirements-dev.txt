@@ -2,3 +2,4 @@
 pytest>=8
 ruff>=0.5
 pyinstaller>=6.6
+pillow>=10; sys_platform == "darwin"  # PyInstaller converts the PNG icon to .icns
