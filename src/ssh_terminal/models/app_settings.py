@@ -60,6 +60,20 @@ KEYBINDING_LABELS: dict[str, str] = {
 }
 
 
+GROUP_SEP = "/"  # "Production/Web/EU" is the sub-group "EU" of "Web" of "Production"
+
+
+def normalize_group(name: str) -> str:
+    """``" Prod / Web "`` -> ``"Prod/Web"`` (collapsed spaces, no empty levels)."""
+    parts = [" ".join(part.split()) for part in name.split(GROUP_SEP)]
+    return GROUP_SEP.join(p for p in parts if p)
+
+
+def group_label(path: str) -> str:
+    """``"Prod/Web"`` -> ``"Prod › Web"`` for menus."""
+    return " › ".join(path.split(GROUP_SEP))
+
+
 def default_font_family() -> str:
     return "JetBrains Mono"
 
@@ -153,11 +167,13 @@ class AppSettings:
         settings.keybindings = merged
         settings.favorites = [x for x in settings.favorites if isinstance(x, str)]
         settings.recent_connections = [x for x in settings.recent_connections if isinstance(x, str)][: cls.MAX_RECENT]
-        settings.groups = {
-            str(name): [a for a in members if isinstance(a, str)]
-            for name, members in settings.groups.items()
-            if isinstance(members, list)
-        }
+        groups: dict[str, list[str]] = {}
+        for name, members in settings.groups.items():
+            key = normalize_group(str(name))
+            if key and isinstance(members, list):  # "Prod / EU" and "Prod/EU" are the same group
+                target = groups.setdefault(key, [])
+                target.extend(a for a in members if isinstance(a, str) and a not in target)
+        settings.groups = groups
         return settings
 
     # ------------------------------------------------------------------ #
@@ -183,13 +199,57 @@ class AppSettings:
                 return name
         return None
 
+    # -- groups and sub-groups ("Parent/Child" paths) ----------------------- #
+    def group_paths(self) -> list[str]:
+        """Every group, including parents that only hold sub-groups, sorted as a tree."""
+        paths: set[str] = set()
+        for name in self.groups:
+            parts = name.split(GROUP_SEP)
+            paths.update(GROUP_SEP.join(parts[: i + 1]) for i in range(len(parts)))
+        return sorted(paths, key=lambda p: [part.lower() for part in p.split(GROUP_SEP)])
+
+    def subgroups(self, group: str, include_self: bool = False) -> list[str]:
+        """Groups under ``group`` (any depth), optionally with ``group`` itself."""
+        return [p for p in self.group_paths() if p.startswith(group + GROUP_SEP) or (include_self and p == group)]
+
+    def add_group(self, group: str) -> str:
+        group = normalize_group(group)
+        if group:
+            self.groups.setdefault(group, [])
+        return group
+
+    def delete_group(self, group: str) -> list[str]:
+        """Remove a group and its sub-groups; their hosts become ungrouped. Returns those hosts."""
+        doomed = set(self.subgroups(group, include_self=True))
+        freed = [a for name in doomed for a in self.groups.get(name, [])]
+        self.groups = {k: v for k, v in self.groups.items() if k not in doomed}
+        return freed
+
+    def rename_group(self, old: str, new: str) -> str:
+        """Rename (or move) a group; its sub-groups follow."""
+        new = normalize_group(new)
+        if not new or new == old or new.startswith(old + GROUP_SEP):
+            return old
+        renamed: dict[str, list[str]] = {}
+        for name, members in self.groups.items():
+            if name == old or name.startswith(old + GROUP_SEP):
+                name = new + name[len(old):]
+            target = renamed.setdefault(name, [])
+            target.extend(a for a in members if a not in target)
+        self.groups = renamed
+        return new
+
     def set_group(self, alias: str, group: str | None) -> None:
+        left = self.group_of(alias)
         for members in self.groups.values():
             if alias in members:
                 members.remove(alias)
+        group = normalize_group(group or "")
         if group:
             self.groups.setdefault(group, []).append(alias)
-        self.groups = {k: v for k, v in self.groups.items() if v or k == group}
+        # the group the host left disappears when it is now empty and has no sub-groups
+        if left and left != group and not self.groups.get(left) and not self.subgroups(left):
+            self.groups.pop(left, None)
 
     def rename_alias(self, old: str, new: str) -> None:
         """Keep metadata attached to a host across renames."""

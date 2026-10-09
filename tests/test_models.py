@@ -118,3 +118,34 @@ def test_port_forward_parse(kind, spec, expected) -> None:
 def test_port_forward_invalid() -> None:
     with pytest.raises(ValueError):
         PortForwardSpec.parse("local", "abc")
+
+
+def test_subgroups() -> None:
+    from ssh_terminal.models.app_settings import AppSettings, group_label, normalize_group
+
+    assert normalize_group(" Prod /  Web  EU / ") == "Prod/Web EU"
+    assert group_label("Prod/Web") == "Prod › Web"
+    s = AppSettings()
+    s.set_group("web-1", "Prod/Web")
+    s.set_group("db-1", "Prod")
+    s.add_group("Prod/Web/EU")
+    assert s.group_paths() == ["Prod", "Prod/Web", "Prod/Web/EU"]
+    assert s.subgroups("Prod") == ["Prod/Web", "Prod/Web/EU"]
+    assert s.group_of("web-1") == "Prod/Web"
+    # leaving a group that still has sub-groups keeps it
+    s.set_group("web-1", "Prod/Web/EU")
+    assert "Prod/Web" in s.groups and s.groups["Prod/Web/EU"] == ["web-1"]
+    # renaming moves the whole branch
+    assert s.rename_group("Prod", "Production") == "Production"
+    assert s.group_of("web-1") == "Production/Web/EU" and s.group_of("db-1") == "Production"
+    assert s.rename_group("Production", "Production/Inside") == "Production"  # not inside itself
+    # deleting removes the branch, hosts become ungrouped
+    assert sorted(s.delete_group("Production/Web")) == ["web-1"]
+    assert s.group_of("web-1") is None and s.group_paths() == ["Production"]
+
+
+def test_group_names_normalised_on_load() -> None:
+    from ssh_terminal.models.app_settings import AppSettings
+
+    s = AppSettings.from_dict({"groups": {"Prod / EU": ["a"], "Prod/EU": ["a", "b"], " / ": ["c"], "x": "bad"}})
+    assert s.groups == {"Prod/EU": ["a", "b"]}
