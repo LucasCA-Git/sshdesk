@@ -1,4 +1,4 @@
-# SSHDesk Server
+# VeyLix Server
 
 Optional, self-hosted backend that lets an organisation **share SSH hosts with its teams**. It handles accounts (email + password), teams and roles, invites by email + one-time code, and shared hosts organised in groups.
 
@@ -46,12 +46,12 @@ Without `DATABASE_URL`, data is stored in `./data/sshdesk.db`. The interactive A
 1. **HTTPS is required** before exposing the server to the internet, because the login token travels in the `Authorization` header. A minimal [Caddy](https://caddyserver.com/) reverse proxy with automatic Let's Encrypt certificates:
 
    ```caddyfile
-   sshdesk.example.com {
+   veylix.example.com {
        reverse_proxy localhost:8080
    }
    ```
 
-   Nginx or Traefik work the same way. Set `PUBLIC_URL=https://sshdesk.example.com`.
+   Nginx or Traefik work the same way. Set `PUBLIC_URL=https://veylix.example.com`.
 2. **Secrets.** Use a strong, unique `SECRET_KEY` (32+ characters) and `POSTGRES_PASSWORD`. Never commit `.env`.
 3. **Registration.** Once your people have accounts, set `ALLOW_REGISTRATION=false`.
 4. **Email (optional).** Configure `SMTP_*` to email invite codes. Without it, the app shows the code so an admin can send it over chat.

@@ -1,4 +1,4 @@
-"""Team sharing end to end: real SSHDesk Server (in a thread) + TeamService.
+"""Team sharing end to end: real VeyLix Server (in a thread) + TeamService.
 
 Skipped when the server dependencies (fastapi, uvicorn...) are not installed.
 """
@@ -90,7 +90,7 @@ def test_owner_shares_member_receives(server: str, isolated_home: Path, tmp_path
     result = member.sync(cfg, writer)
     assert result.hosts_written == 1 and result.conflicts == ["painel (Infra OPA)"] and result.include_added
     text = cfg.read_text()
-    assert text.startswith("# my header\n# SSHDesk teams")  # header kept first, Include before any Host
+    assert text.startswith("# my header\n# VeyLix teams")  # header kept first, Include before any Host
     assert text.index("Include") < text.index("Host painel")
 
     hosts = {h.alias: h for h in SSHConfigSet.load(cfg).concrete_hosts()}

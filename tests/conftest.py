@@ -64,7 +64,7 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
-    monkeypatch.setenv("SSHDESK_HOME", str(tmp_path / "appdir"))
+    monkeypatch.setenv("VEYLIX_HOME", str(tmp_path / "appdir"))
     return home
 
 

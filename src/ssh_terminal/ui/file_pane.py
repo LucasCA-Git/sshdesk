@@ -67,7 +67,7 @@ from ssh_terminal.ui.workers import run_async
 
 log = logging.getLogger(__name__)
 
-MIME_FILES = "application/x-sshdesk-files"
+MIME_FILES = "application/x-veylix-files"
 ROLE_ENTRY = Qt.ItemDataRole.UserRole + 1
 _PANES: weakref.WeakValueDictionary[int, FilePane] = weakref.WeakValueDictionary()
 

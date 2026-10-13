@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sshdesk"
-version = "1.3.0"
-description = "SSH connection manager and terminal for Windows and Linux, driven by your ~/.ssh/config"
+name = "veylix"
+version = "1.4.0"
+description = "VeyLix: secure access, total control. A unified workspace for server operations (SSH, SFTP, Docker, SQL), driven by your ~/.ssh/config"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12"
@@ -43,11 +43,11 @@ Issues = "https://github.com/LucasCA-Git/sshdesk/issues"
 dev = ["pytest>=8", "ruff>=0.5", "pyinstaller>=6.6"]
 
 [project.scripts]
-sshdesk = "ssh_terminal.main:main"
+veylix = "ssh_terminal.main:main"
 ssh-terminal = "ssh_terminal.main:main"
 
 [project.gui-scripts]
-sshdesk-gui = "ssh_terminal.main:main"
+veylix-gui = "ssh_terminal.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

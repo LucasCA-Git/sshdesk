@@ -1,12 +1,12 @@
-# Contributing to SSHDesk
+# Contributing to VeyLix
 
-Thanks for taking the time to contribute! SSHDesk is a free, community-driven SSH client, and every bug report, idea and pull request helps.
+Thanks for taking the time to contribute! VeyLix is a free, community-driven SSH client, and every bug report, idea and pull request helps.
 
 > 🇧🇷 Pode abrir issues e PRs em português também.
 
 ## Ways to help
 
-- **Report a bug**: open an [issue](https://github.com/LucasCA-Git/sshdesk/issues/new?template=bug_report.md) with steps to reproduce, your OS and the SSHDesk version (*Help › About*).
+- **Report a bug**: open an [issue](https://github.com/LucasCA-Git/sshdesk/issues/new?template=bug_report.md) with steps to reproduce, your OS and the VeyLix version (*Help › About*).
 - **Suggest a feature**: open a [feature request](https://github.com/LucasCA-Git/sshdesk/issues/new?template=feature_request.md) describing the problem you want to solve.
 - **Send a pull request**: fixes, features, docs, translations and tests are all welcome.
 - **Security issues**: please **do not** open a public issue. See [SECURITY.md](SECURITY.md).
@@ -75,9 +75,9 @@ PyInstaller does not cross-compile, so each OS builds its own app (CI does all o
 
 | OS | Command | Output |
 |---|---|---|
-| Windows | `scripts\build_windows.ps1` | `dist\SSHDesk.exe` |
-| Linux | `scripts/build_linux.sh` | `dist/SSHDesk` |
-| macOS | `scripts/build_macos.sh` | `dist/SSHDesk.app` + `dist/SSHDesk-<version>-macos-<arch>.dmg` |
+| Windows | `scripts\build_windows.ps1` | `dist\VeyLix.exe` |
+| Linux | `scripts/build_linux.sh` | `dist/VeyLix` |
+| macOS | `scripts/build_macos.sh` | `dist/VeyLix.app` + `dist/VeyLix-<version>-macos-<arch>.dmg` |
 
 ## Code of conduct
 

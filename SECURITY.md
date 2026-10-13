@@ -1,6 +1,6 @@
 # Security Policy
 
-SSHDesk handles SSH connections, host keys and (optionally) saved passwords, so security reports are taken seriously.
+VeyLix handles SSH connections, host keys and (optionally) saved passwords, so security reports are taken seriously.
 
 ## Supported versions
 

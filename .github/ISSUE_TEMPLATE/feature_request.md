@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for SSHDesk
+about: Suggest an idea for VeyLix
 title: "[Feature] "
 labels: enhancement
 ---

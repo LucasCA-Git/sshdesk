@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ssh_terminal import __app_name__, __repo_url__, __version__
+from ssh_terminal import __app_name__, __description__, __repo_url__, __tagline__, __version__
 from ssh_terminal.ui.dialogs import mark_primary, monospace_font
 from ssh_terminal.ui.theme import app_icon, current_palette
 
@@ -73,6 +73,10 @@ class WelcomeDialog(QDialog):
         title.setObjectName("DialogHeader")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
+        tagline = QLabel(f"{__tagline__.upper()}\n{__description__}")
+        tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tagline.setProperty("muted", True)
+        layout.addWidget(tagline)
         if config_exists:
             text = (f"We found your SSH configuration.\n\n{host_count} connection{'s' if host_count != 1 else ''} detected."
                     f"\n\n{config_path}")
@@ -127,8 +131,8 @@ class WhatsNewDialog(QDialog):
         title = QLabel(heading)
         title.setObjectName("DialogHeader")
         titles.addWidget(title)
-        sub = QLabel(f"Updated from {previous} to {__version__}." if previous and previous != __version__
-                     else f"Version {__version__}")
+        sub = QLabel((f"Updated from {previous} to {__version__}." if previous and previous != __version__
+                      else f"Version {__version__}") + f"  ·  {__tagline__}")
         sub.setProperty("muted", True)
         titles.addWidget(sub)
         header.addLayout(titles, 1)
@@ -198,7 +202,7 @@ class ExternalChangeDialog(QDialog):
             difflib.unified_diff(
                 old_text.splitlines(keepends=True),
                 new_text.splitlines(keepends=True),
-                fromfile="loaded in SSHDesk",
+                fromfile="loaded in VeyLix",
                 tofile="on disk",
             )
         ) or "(no textual differences)"
@@ -236,8 +240,9 @@ class ExternalChangeDialog(QDialog):
 def about_text() -> str:
     return (
         f"<h3>{__app_name__} {__version__}</h3>"
-        "<p>SSH connection manager and terminal for Windows and Linux.</p>"
-        "<p>Your <code>~/.ssh/config</code> is the source of truth; SSHDesk only stores UI metadata "
+        f"<p><b>{__tagline__}</b><br>{__description__}</p>"
+        "<p>SSH terminals, files (SFTP), Docker and SQL for Windows, Linux and macOS.</p>"
+        "<p>Your <code>~/.ssh/config</code> is the source of truth; VeyLix only stores UI metadata "
         "(favorites, groups, theme) in its own settings file.</p>"
         "<p>Built with Python, PySide6 (Qt), Paramiko and pyte.<br>Licensed under the MIT License.</p>"
     )

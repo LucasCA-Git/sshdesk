@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Windows, os: windows-latest, artifact: SSHDesk-Windows }
-          - { name: Linux, os: ubuntu-22.04, artifact: SSHDesk-Linux }
-          - { name: macOS (Apple Silicon), os: macos-latest, artifact: SSHDesk-macOS-arm64 }
-          - { name: macOS (Intel), os: macos-15-intel, artifact: SSHDesk-macOS-x86_64 }
+          - { name: Windows, os: windows-latest, artifact: VeyLix-Windows }
+          - { name: Linux, os: ubuntu-22.04, artifact: VeyLix-Linux }
+          - { name: macOS (Apple Silicon), os: macos-latest, artifact: VeyLix-macOS-arm64 }
+          - { name: macOS (Intel), os: macos-15-intel, artifact: VeyLix-macOS-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,18 +38,18 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest
       - name: Build executable
-        run: pyinstaller --noconfirm --clean sshdesk.spec
+        run: pyinstaller --noconfirm --clean veylix.spec
       - name: Package .dmg (macOS)
         if: runner.os == 'macOS'
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('src/ssh_terminal/__init__.py').read()).group(1))")
           ARCH=$(uname -m)
           STAGE=$(mktemp -d)
-          cp -R dist/SSHDesk.app "$STAGE/"
+          cp -R dist/VeyLix.app "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "SSHDesk $VERSION" -srcfolder "$STAGE" -ov -format UDZO "dist/SSHDesk-$VERSION-macos-$ARCH.dmg"
+          hdiutil create -volname "VeyLix $VERSION" -srcfolder "$STAGE" -ov -format UDZO "dist/VeyLix-$VERSION-macos-$ARCH.dmg"
           # keep only the .dmg in the artifact (the .app is inside it)
-          rm -rf dist/SSHDesk dist/SSHDesk.app
+          rm -rf dist/VeyLix dist/VeyLix.app
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

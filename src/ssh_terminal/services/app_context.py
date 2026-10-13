@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from ssh_terminal.ssh.resolver import SSHConfigResolver
 from ssh_terminal.ssh.ssh_manager import SSHManager
 from ssh_terminal.ssh.ssh_session import ConnectOptions
 from ssh_terminal.utils.paths import expand_user_path, get_backup_dir, get_ssh_config_path
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -55,7 +58,13 @@ class AppContext:
             default_strict=settings.default_strict_host_key_checking,
         )
         ssh = SSHManager(lambda: config.config, resolver, credentials, options)
-        return cls(settings_service, config, credentials, resolver, ssh, TeamService(credentials))
+        teams = TeamService(credentials)
+        try:
+            if teams.repoint_legacy_include(path, writer):  # data directory moved by the SSHDesk -> VeyLix rename
+                config.reload()
+        except (OSError, ValueError) as exc:
+            log.warning("Could not update the team Include after the rename: %s", exc)
+        return cls(settings_service, config, credentials, resolver, ssh, teams)
 
     def apply_settings(self, config_override: str | None = None) -> bool:
         """Propagate saved settings to services. Returns True if the config path changed."""

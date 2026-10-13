@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    app = FastAPI(title="SSHDesk Server", version=__version__, docs_url="/docs", redoc_url=None)
+    app = FastAPI(title="VeyLix Server", version=__version__, docs_url="/docs", redoc_url=None)
     app.state.settings = settings
     app.state.db = Database(settings.database_url)
     app.state.db.create_all()
@@ -34,7 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/info", tags=["meta"])
     def info() -> dict:
         return {
-            "name": "SSHDesk Server",
+            "name": "VeyLix Server",
             "version": __version__,
             "registration": settings.allow_registration,
             "email_invites": settings.smtp_enabled,

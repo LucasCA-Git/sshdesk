@@ -1,4 +1,4 @@
-# Build a single-file Windows executable: dist\SSHDesk.exe
+# Build a single-file Windows executable: dist\VeyLix.exe
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 py -3.12 -m venv .venv-build
@@ -6,5 +6,5 @@ py -3.12 -m venv .venv-build
 python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
 python -m pytest
-pyinstaller --noconfirm --clean sshdesk.spec
-Write-Host "Built: $(Resolve-Path dist\SSHDesk.exe)"
+pyinstaller --noconfirm --clean veylix.spec
+Write-Host "Built: $(Resolve-Path dist\VeyLix.exe)"

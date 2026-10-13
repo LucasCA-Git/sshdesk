@@ -49,7 +49,7 @@ class WinPtyBackend(TerminalBackend):
                 "Local terminals on Windows require the 'pywinpty' package (pip install pywinpty)."
             ) from exc
         env = dict(self.env or os.environ)
-        env.setdefault("TERM_PROGRAM", "SSHDesk")
+        env.setdefault("TERM_PROGRAM", "VeyLix")
         kwargs = {}
         if legacy:  # the old WinPTY agent instead of ConPTY
             from winpty import Backend

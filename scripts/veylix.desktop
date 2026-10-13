@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=VeyLix
+GenericName=Server workspace
+Comment=Secure access. Total control. A unified workspace for server operations.
+Exec=VeyLix %U
+Icon=veylix
+Terminal=false
+Categories=Network;System;TerminalEmulator;
+Keywords=ssh;terminal;remote;sftp;docker;sql;

@@ -314,7 +314,7 @@ def copy_file(src: FileSystem, dst: FileSystem, src_path: str, dst_path: str,
     elif src.remote and not dst.remote:
         src.client.get(src_path, dst_path, callback=callback)  # type: ignore[attr-defined]
     else:  # remote -> remote: stream through a local temp file
-        with tempfile.TemporaryDirectory(prefix="sshdesk-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="veylix-") as tmp:
             local = os.path.join(tmp, "file")
             src.client.get(src_path, local, callback=lambda d, t: callback(d // 2, t))  # type: ignore[attr-defined]
             size = os.path.getsize(local)

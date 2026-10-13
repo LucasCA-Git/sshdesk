@@ -1,4 +1,4 @@
-# SSHDesk Server + PostgreSQL.
+# VeyLix Server + PostgreSQL.
 #   cp .env.example .env   (edit SECRET_KEY, POSTGRES_PASSWORD, SMTP_*)
 #   docker compose up -d
 # Put it behind HTTPS (Caddy/Nginx/Traefik) before using it over the internet.

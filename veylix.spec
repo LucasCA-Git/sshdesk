@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for SSHDesk (Windows and Linux).
-#   pyinstaller --noconfirm sshdesk.spec
-# Produces dist/SSHDesk.exe (Windows) or dist/SSHDesk (Linux) as a single file, and
-# dist/SSHDesk.app on macOS (an app bundle; scripts/build_macos.sh wraps it in a .dmg).
+# PyInstaller spec for VeyLix (Windows and Linux).
+#   pyinstaller --noconfirm veylix.spec
+# Produces dist/VeyLix.exe (Windows) or dist/VeyLix (Linux) as a single file, and
+# dist/VeyLix.app on macOS (an app bundle; scripts/build_macos.sh wraps it in a .dmg).
 import sys
 from pathlib import Path
 
@@ -35,21 +35,21 @@ if sys.platform == "darwin":
         a.scripts,
         [],
         exclude_binaries=True,
-        name="SSHDesk",
+        name="VeyLix",
         console=False,
         upx=False,
         argv_emulation=False,
     )
-    coll = COLLECT(exe, a.binaries, a.datas, name="SSHDesk", upx=False)
+    coll = COLLECT(exe, a.binaries, a.datas, name="VeyLix", upx=False)
     app = BUNDLE(
         coll,
-        name="SSHDesk.app",
+        name="VeyLix.app",
         icon=str(ICONS / "app-512.png"),  # converted to .icns by PyInstaller (needs Pillow)
-        bundle_identifier="io.github.lucasca-git.sshdesk",
+        bundle_identifier="io.github.lucasca-git.veylix",
         version=VERSION,
         info_plist={
-            "CFBundleName": "SSHDesk",
-            "CFBundleDisplayName": "SSHDesk",
+            "CFBundleName": "VeyLix",
+            "CFBundleDisplayName": "VeyLix",
             "CFBundleShortVersionString": VERSION,
             "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
@@ -64,7 +64,7 @@ else:
         a.binaries,
         a.datas,
         [],
-        name="SSHDesk",
+        name="VeyLix",
         console=False,
         icon=str(ICONS / ("app.ico" if sys.platform == "win32" else "app-256.png")),
         upx=False,

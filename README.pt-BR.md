@@ -1,8 +1,11 @@
 <div align="center">
 
-<img src="src/ssh_terminal/resources/icons/app-256.png" width="96" alt="Logo do SSHDesk">
+<img src="src/ssh_terminal/resources/icons/app-256.png" width="96" alt="Logo do VeyLix">
 
-# SSHDesk
+# VeyLix
+
+**SECURE ACCESS. TOTAL CONTROL.**<br>
+*Um espaço de trabalho unificado para operar servidores.*
 
 **Cliente SSH gratuito e open source para Windows, macOS e Linux que usa o seu `~/.ssh/config` como fonte da verdade.**
 
@@ -16,15 +19,15 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 
 [Recursos](#recursos) · [Download](#download) · [Começando](#começando) · [Times](#compartilhamento-em-equipe-self-hosted) · [Arquitetura](#arquitetura) · [Guia completo](docs/COMO_FUNCIONA.md) · [Changelog](CHANGELOG.md) · [🇺🇸 English](README.md)
 
-<img src="docs/images/main-window.png" alt="SSHDesk: dois servidores diferentes lado a lado" width="900">
+<img src="docs/images/main-window.png" alt="VeyLix: dois servidores diferentes lado a lado" width="900">
 
 </div>
 
 ---
 
-## Por que o SSHDesk?
+## Por que o VeyLix?
 
-- **O config é seu, não nosso.** O SSHDesk lê e edita o `~/.ssh/config` que você já tem, com um parser sem perdas. Comentários, `Include`, `Match` e opções desconhecidas sobrevivem a qualquer edição, e `ssh`, `scp` e `git` continuam funcionando igual. Não há importação nem dependência do app.
+- **O config é seu, não nosso.** O VeyLix lê e edita o `~/.ssh/config` que você já tem, com um parser sem perdas. Comentários, `Include`, `Match` e opções desconhecidas sobrevivem a qualquer edição, e `ssh`, `scp` e `git` continuam funcionando igual. Não há importação nem dependência do app.
 - **Fluxo moderno, custo zero.** Splits com hosts diferentes, digitação em vários terminais, SFTP em dois painéis, temas e senha salva: o conforto dos clientes SSH comerciais, com licença MIT.
 - **Times sem nuvem de terceiros.** Cada empresa sobe o próprio servidor (Docker) para compartilhar hosts e grupos com convites. Chaves e senhas nunca saem da máquina de cada pessoa.
 
@@ -79,14 +82,14 @@ Os apps prontos ficam na [página de Releases](https://github.com/LucasCA-Git/ss
 
 | Sistema | Arquivo | Como instalar |
 |---|---|---|
-| Windows 10/11 | `SSHDesk.exe` | é só executar |
-| macOS 12+ · Apple Silicon (M1–M4) | `SSHDesk-<versão>-macos-arm64.dmg` | abra o `.dmg` e arraste o **SSHDesk** para *Aplicativos* |
-| macOS 12+ · Intel | `SSHDesk-<versão>-macos-x86_64.dmg` | igual |
-| Linux (x86_64) | `SSHDesk` | `chmod +x SSHDesk && ./SSHDesk` |
+| Windows 10/11 | `VeyLix.exe` | é só executar |
+| macOS 12+ · Apple Silicon (M1–M4) | `VeyLix-<versão>-macos-arm64.dmg` | abra o `.dmg` e arraste o **VeyLix** para *Aplicativos* |
+| macOS 12+ · Intel | `VeyLix-<versão>-macos-x86_64.dmg` | igual |
+| Linux (x86_64) | `VeyLix` | `chmod +x VeyLix && ./VeyLix` |
 
 > Os builds ainda não são assinados.
 > **Windows:** se o SmartScreen avisar, clique em *Mais informações › Executar assim mesmo*.
-> **macOS:** na primeira vez, clique com o botão direito no **SSHDesk** em *Aplicativos* › **Abrir** › **Abrir** (ou rode `xattr -dr com.apple.quarantine /Applications/SSHDesk.app`). Depois disso abre normalmente.
+> **macOS:** na primeira vez, clique com o botão direito no **VeyLix** em *Aplicativos* › **Abrir** › **Abrir** (ou rode `xattr -dr com.apple.quarantine /Applications/VeyLix.app`). Depois disso abre normalmente.
 
 ## Começando
 
@@ -115,8 +118,8 @@ Se o PowerShell bloquear o `Activate.ps1`, rode uma vez: `Set-ExecutionPolicy -S
 ```bash
 sudo apt install python3-venv python3-full libxcb-cursor0 libxkbcommon0 libegl1
 git clone https://github.com/LucasCA-Git/sshdesk.git && cd sshdesk
-python3 -m venv ~/.venvs/sshdesk
-source ~/.venvs/sshdesk/bin/activate
+python3 -m venv ~/.venvs/veylix
+source ~/.venvs/veylix/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
@@ -126,8 +129,8 @@ python app.py
 <summary><b>Linux / WSL (fish)</b></summary>
 
 ```fish
-python3 -m venv ~/.venvs/sshdesk
-source ~/.venvs/sshdesk/bin/activate.fish
+python3 -m venv ~/.venvs/veylix
+source ~/.venvs/veylix/bin/activate.fish
 pip install -r requirements.txt
 python app.py
 ```
@@ -135,18 +138,18 @@ python app.py
 
 > **WSL:** o app lê o `~/.ssh/config` do **Linux**, não o do Windows. Crie o venv no home do Linux, não em `/mnt/c`, que é muito mais lento. Arrastar arquivos do Explorer do Windows para apps do WSLg normalmente não funciona; para isso, use a versão Windows.
 
-Para instalar como pacote e ter o comando `sshdesk`: `pip install .`
+Para instalar como pacote e ter o comando `veylix`: `pip install .`
 
 ### Linha de comando
 
 ```bash
-sshdesk                        # abre o app
-sshdesk web-prod db-prod       # abre e conecta em dois hosts (duas abas)
-sshdesk deploy@10.0.0.5:2222   # conexão avulsa (fora do config)
-sshdesk --local                # abre com um terminal local
-sshdesk --list                 # lista os hosts e sai
-sshdesk -F ~/outro/config      # usa outro arquivo de config
-sshdesk --debug                # log detalhado
+veylix                         # abre o app
+veylix web-prod db-prod        # abre e conecta em dois hosts (duas abas)
+veylix deploy@10.0.0.5:2222    # conexão avulsa (fora do config)
+veylix --local                 # abre com um terminal local
+veylix --list                  # lista os hosts e sai
+veylix -F ~/outro/config       # usa outro arquivo de config
+veylix --debug                 # log detalhado
 ```
 
 ### Atalhos
@@ -170,7 +173,7 @@ Todos os atalhos podem ser trocados em *Settings › Keyboard*. Teclas que não 
 
 ## Compartilhamento em equipe (self-hosted)
 
-Opcional. Cada empresa sobe o **próprio** SSHDesk Server (FastAPI, em [`server/`](server/)), então os dados ficam sob controle dela.
+Opcional. Cada empresa sobe o **próprio** VeyLix Server (FastAPI, em [`server/`](server/)), então os dados ficam sob controle dela.
 
 ```bash
 cd server
@@ -213,7 +216,7 @@ flowchart LR
     FP --> FS
     SB --> CFG
     SSH --> CRED
-    TEAM -- "HTTPS · ETag" --> SRV[(SSHDesk Server · FastAPI + Postgres)]
+    TEAM -- "HTTPS · ETag" --> SRV[(VeyLix Server · FastAPI + Postgres)]
     TEAM -- "teams/*.conf via Include" --> CFG
 ```
 
@@ -253,11 +256,11 @@ scripts/                 scripts de build, sshd de teste, gerador de screenshots
 | O quê | Linux / WSL | Windows |
 |---|---|---|
 | SSH config (fonte da verdade) | `~/.ssh/config` | `%USERPROFILE%\.ssh\config` |
-| Settings do app | `~/.config/sshdesk/app_config.json` | `%APPDATA%\SSHDesk\app_config.json` |
-| Backups do config | `~/.config/sshdesk/backups/` | `%APPDATA%\SSHDesk\backups\` |
-| Log | `~/.config/sshdesk/logs/app.log` | `%APPDATA%\SSHDesk\logs\app.log` |
+| Settings do app | `~/.config/veylix/app_config.json` | `%APPDATA%\VeyLix\app_config.json` |
+| Backups do config | `~/.config/veylix/backups/` | `%APPDATA%\VeyLix\backups\` |
+| Log | `~/.config/veylix/logs/app.log` | `%APPDATA%\VeyLix\logs\app.log` |
 | Senhas salvas | Secret Service ou `credentials.vault` (criptografado) | Credential Manager ou `credentials.vault` |
-| Hosts do time | `~/.config/sshdesk/teams/*.conf` | `%APPDATA%\SSHDesk\teams\*.conf` |
+| Hosts do time | `~/.config/veylix/teams/*.conf` | `%APPDATA%\VeyLix\teams\*.conf` |
 
 O `app_config.json` guarda **só metadados de interface** (tema, fonte, favoritos, recentes, grupos, atalhos). Nada de host, usuário, porta ou chave.
 
@@ -307,7 +310,7 @@ python -m pytest                                   # ~160 testes unitários + in
 SSHDESK_LIVE_SSHD=/tmp/sshd python -m pytest tests/integration   # 13 testes ponta a ponta com sshd real
 cd server && python -m pytest                      # testes da API do servidor de times
 QT_QPA_PLATFORM=offscreen python scripts/make_screenshots.py      # regenera docs/images
-pyinstaller --noconfirm --clean sshdesk.spec       # gera dist/SSHDesk(.exe)
+pyinstaller --noconfirm --clean veylix.spec       # gera dist/VeyLix(.exe)
 ```
 
 O CI (GitHub Actions) roda lint, testes e o build PyInstaller em **Windows e Linux** a cada push. Os testes usam um `HOME` temporário, então o seu `~/.ssh/config` real nunca é tocado.
@@ -322,7 +325,7 @@ O CI (GitHub Actions) roda lint, testes e o build PyInstaller em **Windows e Lin
 | "Authentication failed" | Clique em *Details*: mostra os métodos tentados e os aceitos. Confira `User`, `authorized_keys` e *Help › Diagnostics*. |
 | Senha/passphrase pedida toda vez | Marque "Save password (don't ask again)" ou use o agente (`ssh-add`). |
 | `Could not load the Qt platform plugin "xcb"` | `sudo apt install libxcb-cursor0 libxkbcommon0 libegl1`; no WSL, `wsl --update`. |
-| `externally-managed-environment` | Use um venv (`python3 -m venv ~/.venvs/sshdesk`). |
+| `externally-managed-environment` | Use um venv (`python3 -m venv ~/.venvs/veylix`). |
 | No WSL os hosts não aparecem | O WSL lê o config do Linux. Copie o do Windows ou rode o app no Windows. |
 | Terminal local não abre no Windows | `pip install pywinpty` (Windows 10 1809+). |
 | Quero ver o que aconteceu | Rode com `--debug` e abra *Help › Open Log Folder*. |
@@ -350,11 +353,11 @@ Contribuições são muito bem-vindas: bugs, ideias, código, documentação e t
 
 ## Licença
 
-[MIT](LICENSE) © 2026 Lucas Cardoso Alecrim e contribuidores do SSHDesk.
+[MIT](LICENSE) © 2026 Lucas Cardoso Alecrim e contribuidores do VeyLix.
 
 <div align="center">
 
-**Se o SSHDesk te ajuda, deixe uma ⭐ no repositório. Faz diferença!**
+**Se o VeyLix te ajuda, deixe uma ⭐ no repositório. Faz diferença!**
 
 Feito por [Lucas Cardoso Alecrim](https://github.com/LucasCA-Git)
 

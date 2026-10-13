@@ -7,6 +7,6 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
-# SSHDesk Server: local data and secrets
+# VeyLix Server: local data and secrets
 server/data/
 server/.env

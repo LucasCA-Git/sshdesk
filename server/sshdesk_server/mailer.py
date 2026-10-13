@@ -16,15 +16,15 @@ def send_invite(settings: Settings, to: str, team_name: str, inviter: str, code:
     if not settings.smtp_enabled:
         return False
     msg = EmailMessage()
-    msg["Subject"] = f"Convite para o time {team_name} no SSHDesk"
+    msg["Subject"] = f"Convite para o time {team_name} no VeyLix"
     msg["From"] = settings.smtp_from
     msg["To"] = to
     msg.set_content(
         f"""Olá!
 
-{inviter} convidou você para o time "{team_name}" no SSHDesk.
+{inviter} convidou você para o time "{team_name}" no VeyLix.
 
-1. Abra o SSHDesk e use Account > Sign In (ou Create Account) com este email: {to}
+1. Abra o VeyLix e use Account > Sign In (ou Create Account) com este email: {to}
    Servidor: {settings.public_url}
 2. Vá em Account > Teams > Accept Invite e informe o código:
 

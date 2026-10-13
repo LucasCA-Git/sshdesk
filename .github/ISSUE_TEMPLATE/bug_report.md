@@ -17,7 +17,7 @@ A clear description of the problem.
 
 
 **Environment**
-- SSHDesk version (*Help › About*):
+- VeyLix version (*Help › About*):
 - OS (Windows 11 / Ubuntu 24.04 / WSL…):
 - Installed from (release / source):
 

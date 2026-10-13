@@ -2,11 +2,11 @@
 
 Usage::
 
-    sshdesk                     # open the GUI
-    sshdesk server-prod         # open the GUI and connect to server-prod
-    sshdesk lucas@10.0.0.10:2222  # ad-hoc connection (not in the SSH config)
-    sshdesk --local             # open the GUI with a local terminal
-    sshdesk --list              # print the hosts from the SSH config and exit
+    veylix                      # open the GUI
+    veylix server-prod          # open the GUI and connect to server-prod
+    veylix lucas@10.0.0.10:2222 # ad-hoc connection (not in the SSH config)
+    veylix --local              # open the GUI with a local terminal
+    veylix --list               # print the hosts from the SSH config and exit
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="sshdesk", description=f"{__app_name__} — SSH connection manager and terminal")
+    parser = argparse.ArgumentParser(prog="veylix", description=f"{__app_name__} — SSH connection manager and terminal")
     parser.add_argument("hosts", nargs="*", metavar="HOST", help="SSH alias(es) or user@host[:port] to open on startup")
     parser.add_argument("-l", "--list", action="store_true", help="list hosts from the SSH config and exit")
     parser.add_argument("--local", action="store_true", help="open a local terminal on startup")
@@ -64,9 +64,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return list_hosts(args.config)
 
     from ssh_terminal.utils.logging import setup_logging
+    from ssh_terminal.utils.paths import migrate_legacy_app_dir
 
+    migrated = migrate_legacy_app_dir()  # before logging opens a file in the data directory
     log_file = setup_logging(debug=args.debug)
     log.info("%s %s starting (log: %s)", __app_name__, __version__, log_file)
+    if migrated is not None:
+        log.info("Moved the data directory from %s (SSHDesk) to the VeyLix one", migrated)
 
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QGuiApplication
@@ -82,7 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             import ctypes
 
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SSHDesk.SSHDesk")  # type: ignore[attr-defined]
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VeyLix.VeyLix")  # type: ignore[attr-defined]
         except (AttributeError, OSError) as exc:
             log.debug("AppUserModelID not set: %s", exc)
 

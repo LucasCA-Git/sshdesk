@@ -27,7 +27,7 @@ from ssh_terminal.utils.paths import get_app_dir
 
 log = logging.getLogger(__name__)
 
-SERVICE_NAME = "SSHDesk"
+SERVICE_NAME = "SSHDesk"  # keyring service: kept from the app's former name so saved secrets survive the rename
 
 
 class EncryptedFileVault:

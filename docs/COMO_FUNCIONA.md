@@ -1,8 +1,8 @@
-# Como o SSHDesk funciona
+# Como o VeyLix funciona
 
 Guia completo: como rodar, o que acontece por dentro em cada ação e onde mexer no código para mudar cada coisa.
 
-> Resumo em uma frase: o SSHDesk lê o seu `~/.ssh/config`, mostra cada `Host` na barra lateral e, quando você clica, abre uma conexão SSH (Paramiko) numa thread separada. Os bytes que chegam passam por um emulador de terminal (pyte) e são desenhados numa grade de células com QPainter.
+> Resumo em uma frase: o VeyLix lê o seu `~/.ssh/config`, mostra cada `Host` na barra lateral e, quando você clica, abre uma conexão SSH (Paramiko) numa thread separada. Os bytes que chegam passam por um emulador de terminal (pyte) e são desenhados numa grade de células com QPainter.
 
 ---
 
@@ -57,8 +57,8 @@ Se o PowerShell bloquear o `Activate.ps1`, rode uma vez `Set-ExecutionPolicy -Sc
 
 ```fish
 sudo apt install python3-venv python3-full libxcb-cursor0 libxkbcommon0 libegl1
-python3 -m venv ~/.venvs/sshdesk
-source ~/.venvs/sshdesk/bin/activate.fish
+python3 -m venv ~/.venvs/veylix
+source ~/.venvs/veylix/bin/activate.fish
 pip install -r requirements.txt
 python app.py
 ```
@@ -67,8 +67,8 @@ python app.py
 
 ```bash
 sudo apt install python3-venv python3-full libxcb-cursor0 libxkbcommon0 libegl1
-python3 -m venv ~/.venvs/sshdesk
-source ~/.venvs/sshdesk/bin/activate
+python3 -m venv ~/.venvs/veylix
+source ~/.venvs/veylix/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
@@ -93,7 +93,7 @@ python app.py -F ~/outro/config        # usa outro arquivo de config
 python app.py --debug                  # log detalhado no console
 ```
 
-Depois de `pip install .`, os mesmos comandos funcionam como `sshdesk ...` ou `ssh-terminal ...`. `python -m ssh_terminal` também funciona.
+Depois de `pip install .`, os mesmos comandos funcionam como `veylix ...` ou `ssh-terminal ...`. `python -m ssh_terminal` também funciona.
 
 ### Primeira execução
 
@@ -440,7 +440,7 @@ Um lock garante uma pergunta por vez, mesmo com várias abas conectando ao mesmo
 
 - **Nunca** em texto puro, nunca no log, nunca no `app_config.json` ou no SSH config.
 - Só se você marcar **“Save password (don't ask again)”** no prompt (ou no formulário da conexão):
-  - Windows: Credential Manager, entradas “SSHDesk”;
+  - Windows: Credential Manager, entradas “VeyLix”;
   - Linux com Secret Service: GNOME Keyring ou KWallet;
   - **Sem cofre do sistema** (WSL, servidor, Linux mínimo): cofre local criptografado `credentials.vault` (Fernet = AES-128-CBC + HMAC) com a chave aleatória em `vault.key`, os dois com permissão `600`. Se o keyring do sistema existir mas estiver travado na hora de salvar, o app cai para o cofre local também.
 - `credentials_index.json` guarda **só os nomes** das entradas, sem segredo, para permitir “Clear saved credentials” em *Settings › Security*. A tela mostra onde está guardando (*Stored in*).
@@ -557,14 +557,14 @@ FileSystem (mesma API para os dois lados)
 | SSH config (fonte da verdade) | `~/.ssh/config` | `%USERPROFILE%\.ssh\config` |
 | Backup ao lado | `~/.ssh/config.bak` | `%USERPROFILE%\.ssh\config.bak` |
 | known_hosts | `~/.ssh/known_hosts` | `%USERPROFILE%\.ssh\known_hosts` |
-| Settings do app | `~/.config/sshdesk/app_config.json` | `%APPDATA%\SSHDesk\app_config.json` |
-| Backups com data | `~/.config/sshdesk/backups/` | `%APPDATA%\SSHDesk\backups\` |
-| Log | `~/.config/sshdesk/logs/app.log` | `%APPDATA%\SSHDesk\logs\app.log` |
+| Settings do app | `~/.config/veylix/app_config.json` | `%APPDATA%\VeyLix\app_config.json` |
+| Backups com data | `~/.config/veylix/backups/` | `%APPDATA%\VeyLix\backups\` |
+| Log | `~/.config/veylix/logs/app.log` | `%APPDATA%\VeyLix\logs\app.log` |
 | Senhas (com cofre do sistema) | Secret Service | Credential Manager |
-| Senhas (sem cofre do sistema) | `~/.config/sshdesk/credentials.vault` + `vault.key` | `%APPDATA%\SSHDesk\credentials.vault` + `vault.key` |
-| Hosts do time | `~/.config/sshdesk/teams/*.conf` | `%APPDATA%\SSHDesk\teams\*.conf` |
+| Senhas (sem cofre do sistema) | `~/.config/veylix/credentials.vault` + `vault.key` | `%APPDATA%\VeyLix\credentials.vault` + `vault.key` |
+| Hosts do time | `~/.config/veylix/teams/*.conf` | `%APPDATA%\VeyLix\teams\*.conf` |
 
-A variável `SSHDESK_HOME` muda a pasta do app (os testes usam isso para nunca tocar nos seus arquivos).
+A variável `VEYLIX_HOME` muda a pasta do app (os testes usam isso para nunca tocar nos seus arquivos).
 
 Exemplo de `app_config.json`:
 
@@ -587,7 +587,7 @@ Exemplo de `app_config.json`:
 
 ## 13b. Compartilhamento em equipe
 
-Opcional. Precisa de um **SSHDesk Server** (pasta `server/`, veja `server/README.md`). Sem servidor, nada muda.
+Opcional. Precisa de um **VeyLix Server** (pasta `server/`, veja `server/README.md`). Sem servidor, nada muda.
 
 ### Como os hosts do time chegam no seu computador
 
@@ -599,7 +599,7 @@ TeamService.sync()           → GET /api/v1/sync (ETag; 304 se nada mudou)
   ├─ escreve <pasta do app>/teams/<time>.conf   (sintaxe OpenSSH, arquivo gerenciado)
   ├─ escreve <pasta do app>/teams/known_hosts   (host keys publicadas pelo time)
   └─ garante no topo do ~/.ssh/config:
-       # SSHDesk teams (managed ...)
+       # VeyLix teams (managed ...)
        Include <pasta do app>/teams/*.conf
 ```
 
@@ -730,13 +730,13 @@ python -m pytest            # ~160 testes (unitários + interface offscreen), se
 ### Gerar executável (o PyInstaller não faz cross-compile)
 
 ```bash
-pyinstaller --noconfirm --clean sshdesk.spec
+pyinstaller --noconfirm --clean veylix.spec
 ```
 
-- No Windows gera `dist\SSHDesk.exe`. Há um script pronto: `scripts\build_windows.ps1`.
-- No Linux gera `dist/SSHDesk`. Há um script pronto: `scripts/build_linux.sh`.
-- No macOS gera `dist/SSHDesk.app`; `scripts/build_macos.sh` também monta o `.dmg` (arrastar para *Aplicativos*). O ícone PNG vira `.icns` pelo PyInstaller (precisa do Pillow, já no `requirements-dev.txt`).
-- O GitHub Actions (`.github/workflows/build.yml`) roda lint + testes e gera **Windows, Linux, macOS Apple Silicon (`macos-latest`) e macOS Intel (`macos-15-intel`)** a cada push. Os artefatos: `SSHDesk-Windows`, `SSHDesk-Linux`, `SSHDesk-macOS-arm64`, `SSHDesk-macOS-x86_64` (com o `.dmg`).
+- No Windows gera `dist\VeyLix.exe`. Há um script pronto: `scripts\build_windows.ps1`.
+- No Linux gera `dist/VeyLix`. Há um script pronto: `scripts/build_linux.sh`.
+- No macOS gera `dist/VeyLix.app`; `scripts/build_macos.sh` também monta o `.dmg` (arrastar para *Aplicativos*). O ícone PNG vira `.icns` pelo PyInstaller (precisa do Pillow, já no `requirements-dev.txt`).
+- O GitHub Actions (`.github/workflows/build.yml`) roda lint + testes e gera **Windows, Linux, macOS Apple Silicon (`macos-latest`) e macOS Intel (`macos-15-intel`)** a cada push. Os artefatos: `VeyLix-Windows`, `VeyLix-Linux`, `VeyLix-macOS-arm64`, `VeyLix-macOS-x86_64` (com o `.dmg`).
 - **Teclado no Mac:** o Qt chama a tecla ⌘ de "Control" e o Control de verdade de "Meta". O `terminal/keymap.py` (`terminal_modifiers`) desfaz a troca para o terminal: Control+C manda `^C`, e ⌘ fica só para os atalhos do app (⌘C/⌘V copiam e colam).
 
 ---
@@ -758,8 +758,8 @@ pyinstaller --noconfirm --clean sshdesk.spec
 | Sintoma | Causa / solução |
 |---|---|
 | `Command 'python' not found` (WSL) | Use `python3`, ou rode `sudo apt install python-is-python3`. |
-| `externally-managed-environment` | O Debian bloqueia `pip` global. Crie o venv: `python3 -m venv ~/.venvs/sshdesk`. |
-| `.venvScriptsctivate: command not found` no fish | Esse é o comando do Windows. No fish use `source ~/.venvs/sshdesk/bin/activate.fish`. |
+| `externally-managed-environment` | O Debian bloqueia `pip` global. Crie o venv: `python3 -m venv ~/.venvs/veylix`. |
+| `.venvScriptsctivate: command not found` no fish | Esse é o comando do Windows. No fish use `source ~/.venvs/veylix/bin/activate.fish`. |
 | `ensurepip is not available` | `sudo apt install python3-venv python3-full` |
 | `Could not load the Qt platform plugin "xcb"` | `sudo apt install libxcb-cursor0 libxkbcommon0 libegl1`; no WSL, rode `wsl --update` (WSLg). |
 | No WSL os hosts não aparecem | O WSL lê o config do Linux (`~/.ssh/config`). Copie o do Windows (`cp /mnt/c/Users/<você>/.ssh/config ~/.ssh/`) ou rode o app no Windows nativo. |

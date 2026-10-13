@@ -45,7 +45,7 @@ def collect(config_path: Path, host_count: int, keyring_backend: str) -> list[tu
 
     ssh_bin = find_ssh_binary()
     return [
-        ("SSHDesk", __version__),
+        ("VeyLix", __version__),
         ("Operating System", os_pretty_name()),
         ("Architecture", platform.machine()),
         ("Python", sys.version.split()[0]),

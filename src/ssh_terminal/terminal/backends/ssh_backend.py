@@ -97,7 +97,7 @@ class SSHBackend(TerminalBackend):
                 try:
                     self.forwarding.start(PortForwardSpec.parse(kind, raw))
                 except (ValueError, OSError, paramiko.SSHException) as exc:
-                    msg = f"\r\n\x1b[33m[SSHDesk] Could not start {kind} forward '{raw}': {exc}\x1b[0m\r\n"
+                    msg = f"\r\n\x1b[33m[VeyLix] Could not start {kind} forward '{raw}': {exc}\x1b[0m\r\n"
                     self.emit_data(msg.encode())
 
     def _read_loop(self) -> None:

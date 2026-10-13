@@ -4,21 +4,28 @@
 * Application metadata (favorites, groups, theme...) lives in a per-user
   application directory, never inside the SSH config:
 
-  - Linux:   ``$XDG_CONFIG_HOME/sshdesk`` (default ``~/.config/sshdesk``)
-  - Windows: ``%APPDATA%\\SSHDesk``
-  - macOS:   ``~/Library/Application Support/SSHDesk``
+  - Linux:   ``$XDG_CONFIG_HOME/veylix`` (default ``~/.config/veylix``)
+  - Windows: ``%APPDATA%\\VeyLix``
+  - macOS:   ``~/Library/Application Support/VeyLix``
+
+Before the rename to VeyLix the app was called SSHDesk; :func:`migrate_legacy_app_dir`
+moves the old directory on first start so nothing is lost.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from ssh_terminal.utils.platform import is_macos, is_windows
 
-APP_DIR_NAME_WINDOWS = "SSHDesk"
-APP_DIR_NAME_UNIX = "sshdesk"
-ENV_APP_DIR = "SSHDESK_HOME"  # override used by tests and portable installs
+APP_DIR_NAME_WINDOWS = "VeyLix"
+APP_DIR_NAME_UNIX = "veylix"
+ENV_APP_DIR = "VEYLIX_HOME"  # override used by tests and portable installs
+LEGACY_ENV_APP_DIR = "SSHDESK_HOME"  # same, from before the rename (still honoured)
+LEGACY_DIR_NAME_WINDOWS = "SSHDesk"
+LEGACY_DIR_NAME_UNIX = "sshdesk"
 
 
 def home_dir() -> Path:
@@ -46,18 +53,47 @@ def get_known_hosts_path() -> Path:
 
 def get_app_dir() -> Path:
     """Directory holding ``app_config.json``, logs and backups."""
-    override = os.environ.get(ENV_APP_DIR)
+    override = os.environ.get(ENV_APP_DIR) or os.environ.get(LEGACY_ENV_APP_DIR)
     if override:
         return Path(override)
+    return _app_dir_named(APP_DIR_NAME_WINDOWS, APP_DIR_NAME_UNIX)
+
+
+def get_legacy_app_dir() -> Path:
+    """Where SSHDesk (the app's former name) kept its data."""
+    return _app_dir_named(LEGACY_DIR_NAME_WINDOWS, LEGACY_DIR_NAME_UNIX)
+
+
+def _app_dir_named(windows_name: str, unix_name: str) -> Path:
     if is_windows():
         appdata = os.environ.get("APPDATA")
         base = Path(appdata) if appdata else home_dir() / "AppData" / "Roaming"
-        return base / APP_DIR_NAME_WINDOWS
+        return base / windows_name
     if is_macos():
-        return home_dir() / "Library" / "Application Support" / APP_DIR_NAME_WINDOWS
+        return home_dir() / "Library" / "Application Support" / windows_name
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else home_dir() / ".config"
-    return base / APP_DIR_NAME_UNIX
+    return base / unix_name
+
+
+def migrate_legacy_app_dir() -> Path | None:
+    """First start after the rename: move the SSHDesk data directory to the VeyLix one.
+
+    Returns the old directory when something was moved. Settings, team files, the
+    encrypted vault, logs and backups come along; the team ``Include`` in
+    ``~/.ssh/config`` is updated by :class:`TeamService` on its next sync.
+    """
+    if os.environ.get(ENV_APP_DIR) or os.environ.get(LEGACY_ENV_APP_DIR):
+        return None  # explicit directory: nothing to migrate
+    new, old = get_app_dir(), get_legacy_app_dir()
+    if new.exists() or not old.is_dir() or new == old:
+        return None
+    new.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(old), str(new))
+    except OSError:
+        shutil.copytree(old, new, dirs_exist_ok=True)  # e.g. a file still open on Windows
+    return old
 
 
 def get_app_config_path() -> Path:

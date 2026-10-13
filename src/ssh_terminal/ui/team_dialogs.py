@@ -62,18 +62,18 @@ class _Busy:
 
 # ---------------------------------------------------------------------- #
 class AccountDialog(QDialog):
-    """Sign in or create an account on an SSHDesk Server."""
+    """Sign in or create an account on a VeyLix Server."""
 
     def __init__(self, teams: TeamService, server: str, create: bool = False, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.teams = teams
-        self.setWindowTitle("SSHDesk Account")
+        self.setWindowTitle("VeyLix Account")
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
         header = QLabel("Team sharing")
         header.setObjectName("DialogHeader")
         layout.addWidget(header)
-        intro = QLabel("Sign in to an SSHDesk Server to see the hosts shared by your teams. "
+        intro = QLabel("Sign in to a VeyLix Server to see the hosts shared by your teams. "
                        "Only host definitions are shared — your keys and passwords never leave this computer.")
         intro.setWordWrap(True)
         intro.setProperty("muted", True)
@@ -81,7 +81,7 @@ class AccountDialog(QDialog):
 
         server_row = QFormLayout()
         self.server = QLineEdit(server)
-        self.server.setPlaceholderText("https://sshdesk.example.com")
+        self.server.setPlaceholderText("https://veylix.example.com")
         server_row.addRow("Server", self.server)
         layout.addLayout(server_row)
 

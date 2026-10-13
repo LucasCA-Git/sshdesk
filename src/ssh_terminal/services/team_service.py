@@ -1,4 +1,4 @@
-"""Team sharing: talks to an SSHDesk Server and materialises team hosts as SSH config.
+"""Team sharing: talks to a VeyLix Server and materialises team hosts as SSH config.
 
 How team hosts reach your machine
 ---------------------------------
@@ -36,7 +36,8 @@ from ssh_terminal.utils.paths import expand_user_path, get_app_dir
 log = logging.getLogger(__name__)
 
 KEYRING_PREFIX = "team-token:"
-INCLUDE_MARKER = "# SSHDesk teams (managed by SSHDesk, do not edit the files it includes)"
+INCLUDE_MARKER = "# VeyLix teams (managed by VeyLix, do not edit the files it includes)"
+LEGACY_INCLUDE_MARKER = "# SSHDesk teams (managed by SSHDesk, do not edit the files it includes)"
 
 # Same allow-list as the server (defence in depth: never write anything that
 # could execute commands on this machine, whatever the server sends).
@@ -99,7 +100,7 @@ class SyncResult:
 # HTTP
 # ---------------------------------------------------------------------- #
 class TeamClient:
-    """Tiny JSON client for the SSHDesk Server API (stdlib only)."""
+    """Tiny JSON client for the VeyLix Server API (stdlib only)."""
 
     def __init__(self, server: str, token: str | None = None, timeout: float = 15.0) -> None:
         self.server = server.rstrip("/")
@@ -111,7 +112,7 @@ class TeamClient:
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Accept", "application/json")
-        req.add_header("User-Agent", f"SSHDesk/{__version__}")
+        req.add_header("User-Agent", f"VeyLix/{__version__}")
         if data is not None:
             req.add_header("Content-Type", "application/json")
         if self.token:
@@ -131,7 +132,7 @@ class TeamClient:
         except (TimeoutError, OSError) as exc:
             raise TeamApiError(f"Cannot reach the team server {self.server}: {exc}") from None
         except json.JSONDecodeError:
-            raise TeamApiError(f"{self.server} is not an SSHDesk server (invalid response)") from None
+            raise TeamApiError(f"{self.server} is not a VeyLix server (invalid response)") from None
 
     @staticmethod
     def _error_message(exc: urllib.error.HTTPError) -> str:
@@ -208,8 +209,8 @@ def apply_login(host: dict[str, Any], login: dict[str, str] | None) -> dict[str,
 
 def render_team_config(team: dict[str, Any], hosts: list[dict[str, Any]], known_hosts_file: Path) -> str:
     lines = [
-        f"# SSHDesk team: {team['name']} (role: {team['role']})",
-        "# Managed by SSHDesk. This file is overwritten on every sync; edit hosts in SSHDesk (Teams) instead.",
+        f"# VeyLix team: {team['name']} (role: {team['role']})",
+        "# Managed by VeyLix. This file is overwritten on every sync; edit hosts in VeyLix (Teams) instead.",
         "",
     ]
     known = quote_argument(known_hosts_file.as_posix())
@@ -569,6 +570,9 @@ class TeamService:
         """Add ``Include <app dir>/teams/*.conf`` at the top of the SSH config. Returns True if added."""
         doc = SSHConfigDocument.load(config_path)
         target = Path(self.include_pattern())
+        if self._repoint_legacy_include(doc, target):
+            writer.write(config_path, doc.render())
+            log.info("Team Include in %s now points to %s", config_path, target)
         for _block, pattern in doc.include_patterns():
             if expand_user_path(pattern) == target:
                 return False
@@ -586,6 +590,35 @@ class TeamService:
         writer.write(config_path, doc.render())
         log.info("Added team Include to %s", config_path)
         return True
+
+    def repoint_legacy_include(self, config_path: Path, writer: ConfigFileWriter) -> bool:
+        """Startup after the rename: point an old SSHDesk team ``Include`` at the moved files."""
+        if not config_path.exists():
+            return False
+        doc = SSHConfigDocument.load(config_path)
+        if not self._repoint_legacy_include(doc, Path(self.include_pattern())):
+            return False
+        writer.write(config_path, doc.render())
+        log.info("Team Include in %s now points to %s", config_path, self.include_pattern())
+        return True
+
+    @staticmethod
+    def _repoint_legacy_include(doc: SSHConfigDocument, target: Path) -> bool:
+        """After the rename (SSHDesk -> VeyLix) the team files moved: fix the old ``Include``."""
+        from ssh_terminal.utils.paths import get_legacy_app_dir
+
+        legacy = get_legacy_app_dir() / "teams" / "*.conf"
+        if legacy == target:
+            return False
+        changed = False
+        for block in doc.blocks:
+            for i, ln in enumerate(block.lines):
+                if ln.kind is LineKind.OPTION and ln.keyword == "include" and expand_user_path(ln.value) == legacy:
+                    block.lines[i] = ln.with_value(quote_argument(target.as_posix()))
+                    changed = True
+                elif ln.kind is LineKind.COMMENT and ln.raw.strip() == LEGACY_INCLUDE_MARKER:
+                    block.lines[i] = ConfigLine(INCLUDE_MARKER, LineKind.COMMENT)
+        return changed
 
     # -- sync -------------------------------------------------------------- #
     def sync(self, config_path: Path, writer: ConfigFileWriter, force: bool = False) -> SyncResult:

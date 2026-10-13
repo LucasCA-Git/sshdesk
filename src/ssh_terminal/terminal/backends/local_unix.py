@@ -48,7 +48,7 @@ class UnixPtyBackend(TerminalBackend):
         import pty  # POSIX only
 
         env = dict(self.env or os.environ)
-        env.update({"TERM": self.term_type, "COLORTERM": "truecolor", "TERM_PROGRAM": "SSHDesk"})
+        env.update({"TERM": self.term_type, "COLORTERM": "truecolor", "TERM_PROGRAM": "VeyLix"})
         # macOS has no C.UTF-8 locale; apps started from Finder get no LANG at all
         env.setdefault("LANG", "en_US.UTF-8" if sys.platform == "darwin" else "C.UTF-8")
         self.emit_state(SessionState.CONNECTING, f"Starting {self.description}")
@@ -68,7 +68,7 @@ class UnixPtyBackend(TerminalBackend):
             try:
                 os.execvpe(self.argv[0], self.argv, env)
             except OSError as exc:
-                os.write(2, f"SSHDesk: cannot execute {self.argv[0]}: {exc}\r\n".encode())
+                os.write(2, f"VeyLix: cannot execute {self.argv[0]}: {exc}\r\n".encode())
             os._exit(127)
         self.pid, self.fd = pid, fd
         self.resize(cols, rows)

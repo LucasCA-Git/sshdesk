@@ -50,7 +50,7 @@ class Settings:
     smtp_port: int = field(default_factory=lambda: int(os.environ.get("SMTP_PORT", "587")))
     smtp_user: str = field(default_factory=lambda: os.environ.get("SMTP_USER", ""))
     smtp_password: str = field(default_factory=lambda: os.environ.get("SMTP_PASSWORD", ""))
-    smtp_from: str = field(default_factory=lambda: os.environ.get("SMTP_FROM", "SSHDesk <no-reply@localhost>"))
+    smtp_from: str = field(default_factory=lambda: os.environ.get("SMTP_FROM", "VeyLix <no-reply@localhost>"))
     smtp_tls: str = field(default_factory=lambda: os.environ.get("SMTP_TLS", "starttls"))  # starttls | ssl | none
 
     def __post_init__(self) -> None:

@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 NEW_CONFIG_HEADER = """\
 # OpenSSH client configuration
-# Created by SSHDesk. See `man ssh_config` for all options.
+# Created by VeyLix. See `man ssh_config` for all options.
 #
 # Host my-server
 #     HostName 10.0.0.10

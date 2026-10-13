@@ -435,7 +435,7 @@ def test_files_tab_drop_upload_and_mixed_split(window, qapp, tmp_path: Path) -> 
     items = [right.list.topLevelItem(i) for i in range(right.list.topLevelItemCount())]
     report_item = [it for it in items if it.text(0) == "report.txt"][0]
     import json
-    payload = json.loads(bytes(right.list.mimeData([report_item]).data("application/x-sshdesk-files")).decode())
+    payload = json.loads(bytes(right.list.mimeData([report_item]).data("application/x-veylix-files")).decode())
     right._dropped(payload, str(dest / "sub"))
     _wait_for(qapp, lambda: (dest / "sub" / "report.txt").exists())
     assert not (dest / "report.txt").exists()

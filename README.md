@@ -1,8 +1,11 @@
 <div align="center">
 
-<img src="src/ssh_terminal/resources/icons/app-256.png" width="96" alt="SSHDesk logo">
+<img src="src/ssh_terminal/resources/icons/app-256.png" width="96" alt="VeyLix logo">
 
-# SSHDesk
+# VeyLix
+
+**SECURE ACCESS. TOTAL CONTROL.**<br>
+*A unified workspace for server operations.*
 
 **A free, open-source SSH client for Windows, macOS and Linux that treats your `~/.ssh/config` as the source of truth.**
 
@@ -17,15 +20,15 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and o
 
 [Features](#features) · [Download](#download) · [Quick start](#quick-start) · [Teams](#team-sharing-self-hosted) · [Architecture](#architecture) · [Docs](docs/COMO_FUNCIONA.md) · [Changelog](CHANGELOG.md) · [🇧🇷 Português](README.pt-BR.md)
 
-<img src="docs/images/main-window.png" alt="SSHDesk: two different servers side by side" width="900">
+<img src="docs/images/main-window.png" alt="VeyLix: two different servers side by side" width="900">
 
 </div>
 
 ---
 
-## Why SSHDesk?
+## Why VeyLix?
 
-- **Your config, not ours.** SSHDesk reads and edits your existing `~/.ssh/config` with a lossless parser. Comments, `Include`, `Match` and unknown options survive every edit, and `ssh`, `scp` and `git` keep working exactly as before. Nothing to import, no lock-in.
+- **Your config, not ours.** VeyLix reads and edits your existing `~/.ssh/config` with a lossless parser. Comments, `Include`, `Match` and unknown options survive every edit, and `ssh`, `scp` and `git` keep working exactly as before. Nothing to import, no lock-in.
 - **Modern workflow, zero cost.** You get split views with different hosts, broadcast typing, a two-pane SFTP browser, themes and saved passwords: the comfort of commercial SSH clients, MIT-licensed.
 - **Teams without a vendor cloud.** Companies run their own small server (Docker) to share hosts and groups with invites. Keys and passwords never leave each person's machine.
 
@@ -80,14 +83,14 @@ Pre-built apps are published on the [Releases page](https://github.com/LucasCA-G
 
 | Platform | File | How to install |
 |---|---|---|
-| Windows 10/11 | `SSHDesk.exe` | run it |
-| macOS 12+ · Apple Silicon (M1–M4) | `SSHDesk-<version>-macos-arm64.dmg` | open the `.dmg`, drag **SSHDesk** to *Applications* |
-| macOS 12+ · Intel | `SSHDesk-<version>-macos-x86_64.dmg` | same |
-| Linux (x86_64) | `SSHDesk` | `chmod +x SSHDesk && ./SSHDesk` |
+| Windows 10/11 | `VeyLix.exe` | run it |
+| macOS 12+ · Apple Silicon (M1–M4) | `VeyLix-<version>-macos-arm64.dmg` | open the `.dmg`, drag **VeyLix** to *Applications* |
+| macOS 12+ · Intel | `VeyLix-<version>-macos-x86_64.dmg` | same |
+| Linux (x86_64) | `VeyLix` | `chmod +x VeyLix && ./VeyLix` |
 
 > The builds are not code-signed yet.
 > **Windows:** if SmartScreen warns you, choose *More info › Run anyway*.
-> **macOS:** the first time, right-click **SSHDesk** in *Applications* › **Open** › **Open** (or run `xattr -dr com.apple.quarantine /Applications/SSHDesk.app`). After that it opens normally.
+> **macOS:** the first time, right-click **VeyLix** in *Applications* › **Open** › **Open** (or run `xattr -dr com.apple.quarantine /Applications/VeyLix.app`). After that it opens normally.
 
 ## Quick start
 
@@ -114,8 +117,8 @@ python app.py
 ```bash
 sudo apt install python3-venv python3-full libxcb-cursor0 libxkbcommon0 libegl1
 git clone https://github.com/LucasCA-Git/sshdesk.git && cd sshdesk
-python3 -m venv ~/.venvs/sshdesk
-source ~/.venvs/sshdesk/bin/activate
+python3 -m venv ~/.venvs/veylix
+source ~/.venvs/veylix/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
@@ -125,8 +128,8 @@ python app.py
 <summary><b>Linux / WSL (fish)</b></summary>
 
 ```fish
-python3 -m venv ~/.venvs/sshdesk
-source ~/.venvs/sshdesk/bin/activate.fish
+python3 -m venv ~/.venvs/veylix
+source ~/.venvs/veylix/bin/activate.fish
 pip install -r requirements.txt
 python app.py
 ```
@@ -134,18 +137,18 @@ python app.py
 
 > **WSL:** the app reads the Linux `~/.ssh/config`, not the Windows one. Keep the venv in your Linux home (not under `/mnt/c`), which is much faster. Dragging files from Windows Explorer into WSLg apps is usually not supported, so run the Windows build for that.
 
-Install as a package to get the `sshdesk` command: `pip install .`
+Install as a package to get the `veylix` command: `pip install .`
 
 ### Command line
 
 ```bash
-sshdesk                        # open the app
-sshdesk web-prod db-prod       # open and connect to two hosts (two tabs)
-sshdesk deploy@10.0.0.5:2222   # ad-hoc connection, not in the config
-sshdesk --local                # start with a local terminal
-sshdesk --list                 # print the hosts and exit
-sshdesk -F ~/other/config      # use another config file
-sshdesk --debug                # verbose logging
+veylix                         # open the app
+veylix web-prod db-prod        # open and connect to two hosts (two tabs)
+veylix deploy@10.0.0.5:2222    # ad-hoc connection, not in the config
+veylix --local                 # start with a local terminal
+veylix --list                  # print the hosts and exit
+veylix -F ~/other/config       # use another config file
+veylix --debug                 # verbose logging
 ```
 
 ### Keyboard shortcuts
@@ -169,7 +172,7 @@ All shortcuts can be changed in *Settings › Keyboard*. Keys that are not short
 
 ## Team sharing (self-hosted)
 
-Optional. Each company runs its **own** SSHDesk Server (FastAPI, in [`server/`](server/)), so its data stays under its control.
+Optional. Each company runs its **own** VeyLix Server (FastAPI, in [`server/`](server/)), so its data stays under its control.
 
 ```bash
 cd server
@@ -212,7 +215,7 @@ flowchart LR
     FP --> FS
     SB --> CFG
     SSH --> CRED
-    TEAM -- "HTTPS · ETag" --> SRV[(SSHDesk Server · FastAPI + Postgres)]
+    TEAM -- "HTTPS · ETag" --> SRV[(VeyLix Server · FastAPI + Postgres)]
     TEAM -- "teams/*.conf via Include" --> CFG
 ```
 
@@ -265,7 +268,7 @@ python -m pytest                                   # ~160 unit + offscreen GUI t
 SSHDESK_LIVE_SSHD=/tmp/sshd python -m pytest tests/integration   # 13 end-to-end tests against real sshd
 cd server && python -m pytest                      # team server API tests
 QT_QPA_PLATFORM=offscreen python scripts/make_screenshots.py      # regenerate docs/images
-pyinstaller --noconfirm --clean sshdesk.spec       # build dist/SSHDesk(.exe)
+pyinstaller --noconfirm --clean veylix.spec       # build dist/VeyLix(.exe)
 ```
 
 CI (GitHub Actions) runs lint, tests and the PyInstaller build on **Windows and Linux** for every push. Tests use a temporary `HOME`, so your real `~/.ssh/config` is never touched.
@@ -297,11 +300,11 @@ Built with [PySide6 / Qt](https://doc.qt.io/qtforpython-6/), [Paramiko](https://
 
 ## License
 
-[MIT](LICENSE) © 2026 Lucas Cardoso Alecrim and SSHDesk contributors.
+[MIT](LICENSE) © 2026 Lucas Cardoso Alecrim and VeyLix contributors.
 
 <div align="center">
 
-**If SSHDesk saves you time, please ⭐ the repository. It really helps.**
+**If VeyLix saves you time, please ⭐ the repository. It really helps.**
 
 Made by [Lucas Cardoso Alecrim](https://github.com/LucasCA-Git)
 

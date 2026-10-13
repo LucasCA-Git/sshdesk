@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "images"
 sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-HOME = Path(tempfile.mkdtemp(prefix="sshdesk-shots-"))
+HOME = Path(tempfile.mkdtemp(prefix="veylix-shots-"))
 os.environ["HOME"] = os.environ["USERPROFILE"] = str(HOME)
 os.environ["XDG_CONFIG_HOME"] = str(HOME / ".config")
 os.environ["APPDATA"] = str(HOME / "AppData")

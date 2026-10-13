@@ -18,8 +18,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from ssh_terminal.ui.theme import current_palette
 
-PANE_MIME = "application/x-sshdesk-pane"  # a pane of this window being moved
-HOST_MIME = "application/x-sshdesk-host"  # a host alias dragged from the sidebar
+PANE_MIME = "application/x-veylix-pane"  # a pane of this window being moved
+HOST_MIME = "application/x-veylix-host"  # a host alias dragged from the sidebar
 
 
 class Zone(Enum):
