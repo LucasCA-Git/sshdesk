@@ -12,6 +12,14 @@ ROOT = Path(SPECPATH)
 ICONS = ROOT / "src" / "ssh_terminal" / "resources" / "icons"
 
 hiddenimports = collect_submodules("keyring.backends")
+# SQL console drivers are imported lazily, so PyInstaller cannot see them by itself
+hiddenimports += collect_submodules("pymysql") + collect_submodules("psycopg")
+try:
+    import psycopg_binary  # noqa: F401 - bundled libpq for PostgreSQL
+
+    hiddenimports += collect_submodules("psycopg_binary")
+except ImportError:
+    pass
 if sys.platform == "win32":
     hiddenimports += ["winpty", "win32ctypes.core"]
 

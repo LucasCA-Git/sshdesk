@@ -31,6 +31,8 @@ dependencies = [
     "pyte>=0.8.2",
     "keyring>=24",
     "pywinpty>=2.0.13; sys_platform == 'win32'",
+    "PyMySQL>=1.1",
+    "psycopg[binary]>=3.1",
 ]
 
 [project.urls]

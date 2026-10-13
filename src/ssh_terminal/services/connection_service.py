@@ -72,12 +72,8 @@ class ConnectionService:
         self.ssh.options.default_strict = settings.default_strict_host_key_checking
         return settings
 
-    def open_file_system(self, spec: ConnectionSpec, progress: Callable[[str], None] | None = None):  # noqa: ANN201
-        """Blocking (run it in a worker): LocalFS, or an SFTP RemoteFS for an SSH host."""
-        from ssh_terminal.services.file_systems import LocalFS, RemoteFS
-
-        if spec.kind is ConnectionKind.LOCAL:
-            return LocalFS()
+    def open_ssh(self, spec: ConnectionSpec, progress: Callable[[str], None] | None = None):  # noqa: ANN201
+        """Blocking (run it in a worker): an authenticated SSHConnection to an SSH host."""
         self._apply_ssh_options()
         if spec.adhoc:
             resolved = self.ssh.resolve_adhoc(spec.adhoc.get("user"), spec.adhoc["hostname"], spec.adhoc.get("port"))
@@ -85,7 +81,16 @@ class ConnectionService:
             if SSHConfigSet.load(self.config.path).find(spec.alias) is None:
                 raise HostNotFoundError(spec.alias)
             resolved = self.ssh.resolve(spec.alias)
-        connection = self.ssh.connector(self.prompter, progress=progress).connect(resolved)
+        return self.ssh.connector(self.prompter, progress=progress).connect(resolved)
+
+    def open_file_system(self, spec: ConnectionSpec, progress: Callable[[str], None] | None = None):  # noqa: ANN201
+        """Blocking (run it in a worker): LocalFS, or an SFTP RemoteFS for an SSH host."""
+        from ssh_terminal.services.file_systems import LocalFS, RemoteFS
+
+        if spec.kind is ConnectionKind.LOCAL:
+            return LocalFS()
+        connection = self.open_ssh(spec, progress)
+        resolved = connection.config
         try:
             fs = RemoteFS(connection)
         except Exception:
