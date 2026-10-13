@@ -60,6 +60,7 @@ from ssh_terminal.services.file_systems import (
     TransferProgress,
     human_size,
 )
+from ssh_terminal.ui.dock import DragHandle
 from ssh_terminal.ui.terminal_tabs import PaneBase, state_color
 from ssh_terminal.ui.theme import current_palette, icon, status_dot
 from ssh_terminal.ui.workers import run_async
@@ -338,6 +339,7 @@ class FilePane(PaneBase):
             button.clicked.connect(lambda _c=False, k=key: self.action_requested.emit(self, k))
             row.addWidget(button)
             self.buttons[key] = button
+        self._drag = DragHandle(header, lambda: self.drag_requested.emit(self))  # drag the bar to move the panel
         return header
 
     def _build_toolbar(self) -> QWidget:

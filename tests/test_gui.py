@@ -741,3 +741,112 @@ def test_share_host_never_touches_widgets_from_the_worker(window, qapp, monkeypa
     assert checked_from and all(t is threading.main_thread() for t in checked_from)
     payload, host_id = saved[0]
     assert host_id == 5 and payload["group"] == "Prod/Web" and payload["user"] == "deploy"
+
+
+def test_drag_and_dock_moves_panes(window, qapp) -> None:
+    from PySide6.QtCore import QPoint, QRect
+
+    from ssh_terminal.ui.dock import Zone, zone_at, zone_rect
+
+    rect = QRect(0, 0, 200, 100)
+    assert zone_at(rect, QPoint(10, 50)) is Zone.LEFT and zone_at(rect, QPoint(190, 50)) is Zone.RIGHT
+    assert zone_at(rect, QPoint(100, 5)) is Zone.TOP and zone_at(rect, QPoint(100, 95)) is Zone.BOTTOM
+    assert zone_rect(rect, Zone.RIGHT) == QRect(100, 0, 100, 100)
+    assert Zone.TOP.before and not Zone.BOTTOM.before and Zone.LEFT.orientation is Qt.Orientation.Horizontal
+
+    a = window.open_spec(ConnectionSpec.ssh("server-prod"))
+    b = window.split_with(a, ConnectionSpec.ssh("server-hml"), Qt.Orientation.Horizontal)
+    page = window.tabs.current_page()
+    process(qapp, 50)
+    # drag b above a: the tab becomes a vertical stack [b, a]
+    window.tabs.move_pane(b, a, Qt.Orientation.Vertical, True)
+    root = page._root()
+    assert root.orientation() == Qt.Orientation.Vertical and [root.widget(i) for i in range(root.count())] == [b, a]
+    # a third one docked left of a: nested horizontal [c, a] under b
+    c = window.dock_host("bastion", a, Qt.Orientation.Horizontal, True)
+    process(qapp, 50)
+    assert c is not None and set(page.items()) == {a, b, c}
+    inner = page._root().widget(1)
+    assert inner.orientation() == Qt.Orientation.Horizontal and [inner.widget(i) for i in range(inner.count())] == [c, a]
+    # move c back under everything: the emptied splitter collapses, nothing is lost
+    window.tabs.move_pane(c, b, Qt.Orientation.Vertical, False)
+    root = page._root()
+    assert [root.widget(i) for i in range(root.count())] == [b, c, a] and set(page.items()) == {a, b, c}
+    assert page.active_item is c and all(p.isVisible() for p in (a, b, c))
+    window.tabs.move_pane(c, c, Qt.Orientation.Vertical, False)  # onto itself: no change
+    assert set(page.items()) == {a, b, c}
+
+    # the overlay finds the pane and edge under the cursor, never the dragged pane itself
+    overlay = window.tabs._overlay(page)
+    overlay.begin(a)
+    process(qapp, 30)
+    b_rect = QRect(b.mapTo(page, QPoint(0, 0)), b.size())
+    assert overlay.locate(QPoint(b_rect.left() + 3, b_rect.center().y())) == (b, Zone.LEFT)
+    a_rect = QRect(a.mapTo(page, QPoint(0, 0)), a.size())
+    assert overlay.locate(a_rect.center()) == (None, None)
+    overlay.end()
+    assert not overlay.isVisible()
+
+    # the real drop path: pane drop moves it, host drop opens the host there
+    from PySide6.QtCore import QMimeData
+
+    from ssh_terminal.ui.dock import HOST_MIME, PANE_MIME
+
+    overlay.begin(c)
+    mime = QMimeData()
+    mime.setData(PANE_MIME, b"c")
+    overlay._on_drop(mime, a, Zone.RIGHT)
+    overlay.end()
+    process(qapp, 50)
+    parent = a.parentWidget()
+    assert parent.orientation() == Qt.Orientation.Horizontal and parent.indexOf(c) == parent.indexOf(a) + 1
+    overlay.begin(None)
+    host = QMimeData()
+    host.setData(HOST_MIME, b"database")
+    overlay._on_drop(host, b, Zone.TOP)
+    overlay.end()
+    process(qapp, 80)
+    new = next(p for p in page.panes() if p.spec.alias == "database")
+    assert new.parentWidget().indexOf(new) == new.parentWidget().indexOf(b) - 1
+    for p in page.panes():
+        p.close_session()
+
+
+def test_sidebar_host_drag_carries_alias(window) -> None:
+    from ssh_terminal.ui.connection_panel import KIND_HOST, ROLE_ALIAS, ROLE_KIND
+    from ssh_terminal.ui.dock import HOST_MIME
+
+    tree = window.sidebar.tree
+    hosts = []
+
+    def walk(item) -> None:  # noqa: ANN001
+        for j in range(item.childCount()):
+            child = item.child(j)
+            if child.data(0, ROLE_KIND) == KIND_HOST:
+                hosts.append(child)
+            walk(child)
+
+    for i in range(tree.topLevelItemCount()):
+        walk(tree.topLevelItem(i))
+    mime = tree.mimeData([hosts[0]])
+    assert bytes(mime.data(HOST_MIME)).decode() == hosts[0].data(0, ROLE_ALIAS)
+    assert not tree.mimeData([tree.topLevelItem(0)]).hasFormat(HOST_MIME)  # sections are not hosts
+
+
+def test_split_menu_groups_hosts_like_the_sidebar(window) -> None:
+    from PySide6.QtWidgets import QMenu
+
+    window.settings.groups = {"Prod": ["server-prod"], "Prod/Web": ["server-hml"]}
+    window.settings.favorites = ["bastion"]
+    menu = QMenu()
+    window._host_actions(menu, lambda alias: None)
+    top = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert top[0].startswith("bastion")  # favorites first
+    prod = next(a.menu() for a in menu.actions() if a.text() == "Prod")
+    inside = [a.text() for a in prod.actions()]
+    assert inside[0] == "Web" and any(t.startswith("server-prod") for t in inside)
+    web = next(a.menu() for a in prod.actions() if a.text() == "Web")
+    assert [a.text().split()[0] for a in web.actions()] == ["server-hml"]
+    assert not any(t.startswith(("server-prod", "server-hml")) for t in top)  # not repeated at the top
+    flat = [a.text() for a in menu.actions()] + inside + [a.text() for a in web.actions()]
+    assert sum(t.startswith("bastion") for t in flat) == 1  # a favorite is listed once

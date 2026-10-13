@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QMimeData, QModelIndex, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QKeyEvent, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -26,6 +26,7 @@ from ssh_terminal.models.app_settings import GROUP_SEP, AppSettings, group_label
 from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services.team_service import TeamInfo
 from ssh_terminal.ssh.host_classifier import HostRole, host_role
+from ssh_terminal.ui.dock import HOST_MIME
 from ssh_terminal.ui.theme import current_palette, icon
 
 ROLE_KIND = Qt.ItemDataRole.UserRole + 1
@@ -144,6 +145,31 @@ class HostDelegate(QStyledItemDelegate):
 
 
 class _Tree(QTreeWidget):
+    drag_started = Signal()
+    drag_finished = Signal()
+
+    def mimeTypes(self) -> list[str]:  # noqa: N802
+        return [HOST_MIME]
+
+    def mimeData(self, items) -> QMimeData:  # noqa: N802, ANN001
+        """Dragging a host: its alias, dropped on a terminal edge to open it beside/below."""
+        mime = QMimeData()
+        aliases = [it.data(0, ROLE_ALIAS) for it in items if it.data(0, ROLE_KIND) == KIND_HOST]
+        if aliases:
+            mime.setData(HOST_MIME, aliases[0].encode())
+            mime.setText(aliases[0])
+        return mime
+
+    def startDrag(self, supported_actions) -> None:  # noqa: N802, ANN001
+        item = self.currentItem()
+        if item is None or item.data(0, ROLE_KIND) != KIND_HOST:
+            return  # only SSH hosts can be docked next to a terminal
+        self.drag_started.emit()
+        try:
+            super().startDrag(Qt.DropAction.CopyAction)
+        finally:
+            self.drag_finished.emit()
+
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             item = self.currentItem()
@@ -189,6 +215,8 @@ class ConnectionPanel(QWidget):
     import_requested = Signal()
     reload_requested = Signal()
     section_toggled = Signal(str, bool)
+    host_drag_started = Signal()  # a host is dragged out of the list (to dock it next to a terminal)
+    host_drag_finished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -244,6 +272,10 @@ class ConnectionPanel(QWidget):
         self.tree.itemClicked.connect(self._clicked)
         self.tree.itemExpanded.connect(lambda it: self._section_state(it, True))
         self.tree.itemCollapsed.connect(lambda it: self._section_state(it, False))
+        self.tree.setDragEnabled(True)
+        self.tree.setDragDropMode(QTreeWidget.DragDropMode.DragOnly)
+        self.tree.drag_started.connect(self.host_drag_started)
+        self.tree.drag_finished.connect(self.host_drag_finished)
         layout.addWidget(self.tree, 1)
 
         self.empty_label = QLabel("No SSH hosts found.\nCreate one with “New Connection”.")

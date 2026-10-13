@@ -9,6 +9,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import shiboken6
 from PySide6.QtCore import QByteArray, QFileSystemWatcher, QPoint, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
@@ -390,6 +391,9 @@ class MainWindow(QMainWindow):
         sb.team_restore_requested.connect(self.restore_team_hosts)
         sb.team_login_requested.connect(self.set_team_login)
         sb.team_login_reset_requested.connect(self.reset_team_login)
+        sb.host_drag_started.connect(self.tabs.begin_host_drag)
+        sb.host_drag_finished.connect(self.tabs.end_host_drag)
+        self.tabs.host_dropped.connect(self.dock_host)
         sb.subgroup_requested.connect(self.new_subgroup)
         sb.group_rename_requested.connect(self.rename_group)
         sb.group_delete_requested.connect(self.delete_group)
@@ -1239,14 +1243,63 @@ class MainWindow(QMainWindow):
         return hosts
 
     def _host_actions(self, menu: QMenu, slot) -> None:  # noqa: ANN001 - slot(alias)
-        target = menu
+        """Hosts for a menu, organised like the sidebar: favorites, then a submenu per
+        group / sub-group (personal, then teams), then the hosts without a group."""
         hosts = self._shell_hosts()
-        for i, host in enumerate(hosts):
-            if i == 20:
-                target = menu.addMenu(f"More Hosts ({len(hosts) - 20})")
+
+        def add(target: QMenu, host: SSHHost) -> None:
             name = "star-filled" if self.settings.is_favorite(host.alias) else "server"
             label = host.alias if not host.hostname or host.hostname == host.alias else f"{host.alias}   ·   {host.hostname}"
             target.addAction(icon(name), label, lambda a=host.alias: self.ensure_team_login(a) and slot(a))
+
+        favorites = [h for h in hosts if self.settings.is_favorite(h.alias)]
+        for host in favorites:
+            add(menu, host)
+        if favorites:
+            menu.addSeparator()
+        hosts = [h for h in hosts if not self.settings.is_favorite(h.alias)]  # listed once, at the top
+
+        # where each host goes: (root label, group path); personal groups win over team groups
+        placement: dict[str, tuple[str, str]] = {}
+        for host in hosts:
+            group = self.settings.group_of(host.alias)
+            team = self._team_of_alias(host.alias) if not group else None
+            if group:
+                placement[host.alias] = ("", group)
+            elif team is not None:  # keyed by team id: two teams may share a name
+                placement[host.alias] = (f"{team.id}\x00Team · {team.name}", normalize_group(self.ctx.teams.group_of(host.alias)))
+        menus: dict[tuple[str, str], QMenu] = {}
+
+        def label(text: str) -> str:
+            return text.split("\x00", 1)[-1].replace("&", "&&")  # "&" would become a mnemonic
+
+        def submenu(root: str, path: str) -> QMenu:
+            key = (root, path)
+            if key not in menus:
+                if not path:  # a team's own submenu
+                    menus[key] = menu.addMenu(icon("server"), label(root))
+                else:
+                    parent_path, _sep, leaf = path.rpartition(GROUP_SEP)
+                    parent = submenu(root, parent_path) if (parent_path or root) else menu
+                    menus[key] = parent.addMenu(icon("folder"), label(leaf))
+            return menus[key]
+
+        paths = sorted(set(placement.values()), key=lambda rp: (rp[0] != "", label(rp[0]).lower(),
+                                                                [x.lower() for x in rp[1].split(GROUP_SEP)]))
+        for root, path in paths:  # create every submenu first so sub-groups come before hosts
+            submenu(root, path)
+        for host in hosts:
+            if host.alias in placement:
+                add(submenu(*placement[host.alias]), host)
+
+        loose = [h for h in hosts if h.alias not in placement]
+        if menus and loose:
+            menu.addSeparator()
+        target = menu
+        for i, host in enumerate(loose):
+            if i == 20:
+                target = menu.addMenu(f"More Hosts ({len(loose) - 20})")
+            add(target, host)
 
     def _fill_split_menu(self, menu: QMenu, pane: PaneBase, orientation: Qt.Orientation) -> None:
         """Choices for the new pane: same connection, a local shell, any SSH host, or files (SFTP)."""
@@ -1284,6 +1337,21 @@ class MainWindow(QMainWindow):
             return
         target = pane.focus_target()
         self._split_chooser(pane, orientation, target.mapToGlobal(target.rect().center()))
+
+    def dock_host(self, alias: str, target: PaneBase, orientation: Qt.Orientation, before: bool) -> TerminalPane | None:
+        """A host dragged from the sidebar onto a terminal edge: open it there."""
+        page = self.tabs.current_page()
+        if page is None or not shiboken6.isValid(target) or target not in page.items():
+            return None
+        if self.is_git_host(alias):
+            self.statusBar().showMessage(f"“{alias}” is a Git/service endpoint: there is no shell to open.", 5000)
+            return None
+        if not self.ensure_team_login(alias):
+            return None
+        pane = self._make_pane(ConnectionSpec.ssh(alias))
+        self.tabs.split_pane(target, pane, orientation, before)
+        QTimer.singleShot(0, pane.start)
+        return pane
 
     def split_with(self, pane: PaneBase, spec: ConnectionSpec, orientation: Qt.Orientation) -> TerminalPane:
         page = self.tabs._page_of(pane)

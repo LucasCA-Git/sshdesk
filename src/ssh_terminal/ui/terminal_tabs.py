@@ -6,8 +6,9 @@ import logging
 import math
 from collections.abc import Callable
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+import shiboken6
+from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QDrag
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -29,6 +30,7 @@ from ssh_terminal.terminal.color_schemes import SCHEMES, ColorScheme
 from ssh_terminal.terminal.terminal_session import TerminalSession
 from ssh_terminal.terminal.terminal_widget import TerminalWidget
 from ssh_terminal.ui.dialogs import show_error
+from ssh_terminal.ui.dock import HOST_MIME, PANE_MIME, DockOverlay, DragHandle, Zone
 from ssh_terminal.ui.theme import current_palette, icon, status_dot
 
 log = logging.getLogger(__name__)
@@ -150,6 +152,10 @@ class PaneHeader(QWidget):
         self.buttons["menu"].clicked.connect(
             lambda: pane.context_menu.emit(pane, self.buttons["menu"].mapToGlobal(self.buttons["menu"].rect().bottomLeft()))
         )
+        self.setToolTip("Drag this bar onto another terminal to place it beside or below")
+        for label in (self.title, self.subtitle, self.icon):
+            label.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._drag = DragHandle(self, lambda: pane.drag_requested.emit(pane))
 
     def _fill_theme_menu(self) -> None:
         menu = self.theme_menu
@@ -203,6 +209,7 @@ class PaneBase(QWidget):
     title_changed = Signal(object)  # self
     context_menu = Signal(object, QPoint)  # self, global pos
     action_requested = Signal(object, str)  # self, "split_right" | "split_down" | "close" | "broadcast"
+    drag_requested = Signal(object)  # self: the header was dragged (move the pane)
     terminal_title = ""
 
 
@@ -361,6 +368,7 @@ class TabPage(QWidget):
         self._last_terminal: TerminalPane | None = first if isinstance(first, TerminalPane) else None
         self.custom_title = ""
         self.broadcast = False  # mirror typed input to every pane of this tab
+        self.overlay: DockOverlay | None = None  # created by TerminalTabs (drag and dock)
 
     @property
     def active_pane(self) -> TerminalPane | None:
@@ -432,11 +440,13 @@ class TabPage(QWidget):
         """Terminal panes only."""
         return self.findChildren(TerminalPane)
 
-    def split(self, pane: PaneBase, new: PaneBase, orientation: Qt.Orientation) -> None:
+    def split(self, pane: PaneBase, new: PaneBase, orientation: Qt.Orientation, before: bool = False) -> None:
+        """Put ``new`` next to ``pane``: after it (right/below) or ``before`` it (left/above)."""
         parent = pane.parentWidget()
         if isinstance(parent, QSplitter) and parent.orientation() == orientation:
-            parent.insertWidget(parent.indexOf(pane) + 1, new)
+            parent.insertWidget(parent.indexOf(pane) + (0 if before else 1), new)
             parent.setSizes([1000] * parent.count())
+            new.show()
             return
         splitter = self._splitter(orientation)
         if isinstance(parent, QSplitter):
@@ -450,15 +460,32 @@ class TabPage(QWidget):
         else:
             self._layout.replaceWidget(pane, splitter)
             splitter.addWidget(pane)
-        splitter.addWidget(new)
+        splitter.insertWidget(0 if before else 1, new)
         pane.show()
+        new.show()
         splitter.setSizes([1000, 1000])
 
+    def move(self, pane: PaneBase, target: PaneBase, orientation: Qt.Orientation, before: bool) -> None:
+        """Drag and dock: take ``pane`` out of the tree and put it next to ``target``."""
+        if pane is target or pane not in self.items() or target not in self.items():
+            return
+        self.detach(pane)
+        self.split(target, pane, orientation, before)
+
     def remove(self, pane: PaneBase) -> None:
+        self.detach(pane)
+        pane.deleteLater()
+        if self._last_terminal is pane:
+            self._last_terminal = None
+        remaining = self.items()
+        if remaining and self.active_item is pane:
+            self.active_pane = remaining[0]
+
+    def detach(self, pane: PaneBase) -> None:
+        """Take a pane out of the split tree (kept alive), collapsing a splitter left with one child."""
         parent = pane.parentWidget()
         pane.hide()
         pane.setParent(None)
-        pane.deleteLater()
         if isinstance(parent, QSplitter) and parent.count() == 1:
             survivor = parent.widget(0)
             grand = parent.parentWidget()
@@ -471,11 +498,6 @@ class TabPage(QWidget):
             survivor.show()
             parent.setParent(None)
             parent.deleteLater()
-        if self._last_terminal is pane:
-            self._last_terminal = None
-        remaining = self.items()
-        if remaining and self.active_item is pane:
-            self.active_pane = remaining[0]
 
 
 class TerminalTabs(QTabWidget):
@@ -493,6 +515,7 @@ class TerminalTabs(QTabWidget):
     pane_action = Signal(object, str)  # TerminalPane, action
     broadcast_changed = Signal(bool)  # broadcast state of the current tab
     files_requested = Signal()  # new SFTP tab (this computer | host)
+    host_dropped = Signal(str, object, object, bool)  # alias, target pane, orientation, before
 
     def __init__(self, settings: AppSettings, shell_names: Callable[[], list[str]], parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -564,6 +587,7 @@ class TerminalTabs(QTabWidget):
         pane.title_changed.connect(lambda p: self._pane_updated(page, p))
         pane.context_menu.connect(self.pane_context_menu)
         pane.action_requested.connect(self.pane_action)
+        pane.drag_requested.connect(self._drag_pane)
         if isinstance(pane, TerminalPane):
             pane.edit_requested.connect(self.edit_connection_requested)
             pane.session_closed.connect(self.session_closed)
@@ -579,15 +603,71 @@ class TerminalTabs(QTabWidget):
         QTimer.singleShot(0, pane.focus_target().setFocus)
         return page
 
-    def split_pane(self, pane: PaneBase, new: PaneBase, orientation: Qt.Orientation) -> None:
+    def split_pane(self, pane: PaneBase, new: PaneBase, orientation: Qt.Orientation, before: bool = False) -> None:
         page = self._page_of(pane)
         if page is None:
             return
         self._wire(new, page)
-        page.split(pane, new, orientation)
+        page.split(pane, new, orientation, before)
         page.active_pane = new
         QTimer.singleShot(0, new.focus_target().setFocus)
         self._update_tab(page)
+
+    # -- drag and dock ---------------------------------------------------- #
+    def _overlay(self, page: TabPage) -> DockOverlay:
+        if page.overlay is None:
+            page.overlay = DockOverlay(page, page.items, lambda mime, target, zone, pg=page: self._dock_drop(pg, mime, target, zone))
+        return page.overlay
+
+    def _drag_pane(self, pane: PaneBase) -> None:
+        """A pane's header was dragged: show the drop zones and move it where it is dropped."""
+        page = self._page_of(pane)
+        if page is None or len(page.items()) < 2:
+            return  # nothing to dock next to
+        drag = QDrag(pane)
+        mime = QMimeData()
+        mime.setData(PANE_MIME, pane.title.encode())
+        drag.setMimeData(mime)
+        preview = pane.grab()
+        drag.setPixmap(preview.scaledToWidth(min(280, max(preview.width(), 1)), Qt.TransformationMode.SmoothTransformation))
+        overlay = self._overlay(page)
+        overlay.begin(pane)
+        try:
+            drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            overlay.end()
+
+    def begin_host_drag(self) -> None:
+        """A host is being dragged from the sidebar: show drop zones on the current tab."""
+        page = self.current_page()
+        if page is not None and page.isVisible():
+            self._overlay(page).begin(None)
+
+    def end_host_drag(self) -> None:
+        for page in self.pages():
+            if page.overlay is not None:
+                page.overlay.end()
+
+    def _dock_drop(self, page: TabPage, mime: QMimeData, target: PaneBase, zone: Zone) -> None:
+        overlay = self._overlay(page)
+        if mime.hasFormat(PANE_MIME) and overlay.source is not None:
+            source = overlay.source
+            # after the drop event returns: never reparent widgets inside the drag loop
+            QTimer.singleShot(0, lambda: self.move_pane(source, target, zone.orientation, zone.before))
+        elif mime.hasFormat(HOST_MIME):
+            alias = bytes(mime.data(HOST_MIME)).decode()
+            QTimer.singleShot(0, lambda: self.host_dropped.emit(alias, target, zone.orientation, zone.before))
+
+    def move_pane(self, pane: PaneBase, target: PaneBase, orientation: Qt.Orientation, before: bool) -> None:
+        if not (shiboken6.isValid(pane) and shiboken6.isValid(target)):
+            return  # closed between the drop and this deferred call
+        page = self._page_of(pane)
+        if page is None or pane is target or self._page_of(target) is not page:
+            return
+        page.move(pane, target, orientation, before)
+        page.active_pane = pane
+        self._update_tab(page)
+        QTimer.singleShot(0, pane.focus_target().setFocus)
 
     # -- broadcast input ------------------------------------------------- #
     def _broadcast_input(self, page: TabPage, source: TerminalPane, data: bytes) -> None:
