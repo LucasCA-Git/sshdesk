@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ssh_terminal.i18n import tr
 from ssh_terminal.models.app_settings import GROUP_SEP, AppSettings, group_label, normalize_group
 from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services.team_service import TeamInfo
@@ -207,6 +208,7 @@ class ConnectionPanel(QWidget):
     share_group_requested = Signal(str, int)  # group name, team id
     open_split_requested = Signal(str, str)  # alias, "right" | "down" (next to the current terminal)
     files_requested = Signal(str, str)  # alias, "tab" | "right" | "down"  (SFTP file browser)
+    tool_requested = Signal(str, str)  # alias, "docker" | "sql"
     git_test_requested = Signal(str)
     copy_git_remote_requested = Signal(str)
     new_requested = Signal()
@@ -629,6 +631,8 @@ class ConnectionPanel(QWidget):
             files.addAction("Open in New Tab (this computer | host)", lambda: self.files_requested.emit(alias, "tab"))
             files.addAction(icon("split-right"), "Open to the Right", lambda: self.files_requested.emit(alias, "right"))
             files.addAction(icon("split-down"), "Open Below", lambda: self.files_requested.emit(alias, "down"))
+            menu.addAction(icon("container"), tr("Docker"), lambda: self.tool_requested.emit(alias, "docker"))
+            menu.addAction(icon("database"), tr("SQL console"), lambda: self.tool_requested.emit(alias, "sql"))
             menu.addAction("Test Connection", lambda: self.test_requested.emit(alias))
             menu.addAction(icon("git"), "Treat as Git / Service (no shell)", lambda: self.role_set.emit(alias, HostRole.GIT.value))
         menu.addSeparator()

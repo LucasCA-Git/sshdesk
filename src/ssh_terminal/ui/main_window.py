@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from ssh_terminal import __app_name__, __version__
 from ssh_terminal.errors import ConfigError, FriendlyError, describe_exception
+from ssh_terminal.i18n import set_language
 from ssh_terminal.models.app_settings import GROUP_SEP, group_label, normalize_group
 from ssh_terminal.models.connection import ConnectionKind, ConnectionSpec, SessionState
 from ssh_terminal.models.ssh_host import SSHHost
@@ -46,6 +47,7 @@ from ssh_terminal.ui.appearance_panel import AppearancePanel
 from ssh_terminal.ui.connection_dialog import ConnectionDialog
 from ssh_terminal.ui.connection_panel import ConnectionPanel
 from ssh_terminal.ui.dialogs import confirm, mark_primary, show_error
+from ssh_terminal.ui.docker_pane import DockerPane
 from ssh_terminal.ui.file_pane import FilePane
 from ssh_terminal.ui.grip_splitter import GripSplitter
 from ssh_terminal.ui.info_dialogs import (
@@ -59,6 +61,7 @@ from ssh_terminal.ui.info_dialogs import (
 from ssh_terminal.ui.port_forward_dialog import PortForwardDialog
 from ssh_terminal.ui.prompter import QtAuthPrompter
 from ssh_terminal.ui.settings_dialog import SettingsDialog
+from ssh_terminal.ui.sql_pane import SqlPane
 from ssh_terminal.ui.team_dialogs import AccountDialog, ShareHostDialog, TeamLoginDialog, TeamsDialog
 from ssh_terminal.ui.terminal_tabs import PaneBase, TerminalPane, TerminalTabs, state_color
 from ssh_terminal.ui.test_connection_dialog import TestConnectionDialog
@@ -112,6 +115,7 @@ class MainWindow(QMainWindow):
     def __init__(self, ctx: AppContext, startup: StartupOptions | None = None) -> None:
         super().__init__()
         self.ctx = ctx
+        set_language(ctx.settings.language)  # before any widget text is created
         self.startup = startup or StartupOptions()
         self.setWindowTitle(__app_name__)
         self.setWindowIcon(app_icon())
@@ -235,6 +239,8 @@ class MainWindow(QMainWindow):
         a("reconnect", "Reconnect", lambda: self._with_pane(lambda p: p.reconnect()))
         a("edit_connection", "Edit Connection...", self.edit_current_connection)
         a("port_forwarding", "Port Forwarding...", self.open_port_forwarding)
+        a("docker", "Docker", lambda: self.open_tool("docker"), icon_name="container")
+        a("sql_console", "SQL Console", lambda: self.open_tool("sql"), icon_name="database")
         a("open_config", "Open SSH Config", lambda: self.open_config_file(self.ctx.config.path))
         a("config_dir", "SSH Config Directory", self.open_config_dir, icon_name="folder")
         a("clear", "Clear", lambda: self._with_pane(lambda p: p.terminal.clear()))
@@ -297,6 +303,9 @@ class MainWindow(QMainWindow):
         ssh_menu = bar.addMenu("&SSH")
         for key in ("new_connection", "test_connection", "reconnect", "edit_connection", "port_forwarding"):
             ssh_menu.addAction(acts[key])
+        ssh_menu.addSeparator()
+        ssh_menu.addAction(acts["docker"])
+        ssh_menu.addAction(acts["sql_console"])
         ssh_menu.addSeparator()
         ssh_menu.addAction(acts["open_config"])
         ssh_menu.addAction(acts["config_dir"])
@@ -419,6 +428,7 @@ class MainWindow(QMainWindow):
         sb.split_view_requested.connect(self.open_split_view)
         sb.open_split_requested.connect(self.split_alias)
         sb.files_requested.connect(self.files_alias)
+        sb.tool_requested.connect(lambda alias, kind: self.open_tool(kind, alias))
         t.files_requested.connect(lambda: self.open_files(None))
         t.broadcast_changed.connect(self._broadcast_changed)
         self.appearance.scheme_chosen.connect(self._scheme_chosen)
@@ -462,6 +472,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     def apply_settings(self, initial: bool = False) -> None:
         s = self.settings
+        set_language(s.language)
         app = QApplication.instance()
         if isinstance(app, QApplication):
             apply_theme(app, s.theme)
@@ -1104,6 +1115,18 @@ class MainWindow(QMainWindow):
 
     def _update_status(self, pane: TerminalPane | None) -> None:
         pal = current_palette()
+        item = self.tabs.current_item()
+        if item is not None and not isinstance(item, TerminalPane):  # Docker / SQL / files card has focus
+            state = item.state
+            label = {SessionState.CONNECTED: "Connected", SessionState.CONNECTING: "Connecting",
+                     SessionState.FAILED: "Failed"}.get(state, "Disconnected")
+            self.status_state.setText(f"<span style='color:{state_color(state)}'>●</span> {label}")
+            self.status_kind.setText("SSH" if item.spec is not None and item.spec.kind is ConnectionKind.SSH else "Local")
+            self.status_name.setText(item.title)
+            self.status_endpoint.setText(getattr(item, "description", ""))
+            self.status_size.setText("")
+            self.setWindowTitle(f"{item.title} — {__app_name__}")
+            return
         if pane is None:
             self.status_state.setText(f"<span style='color:{pal.muted}'>●</span> Disconnected")
             for w in (self.status_kind, self.status_name, self.status_endpoint, self.status_size):
@@ -1235,6 +1258,8 @@ class MainWindow(QMainWindow):
             pane.focus_target().setFocus()
         elif action == "close":
             self.tabs.close_pane(pane)
+        elif action in ("docker", "sql") and pane.spec is not None and pane.spec.alias:
+            self.open_tool(action, pane.spec.alias)
 
     # -- split with another terminal / broadcast --------------------------- #
     def _shell_hosts(self) -> list:  # noqa: ANN201 - list[SSHHost]
@@ -1391,6 +1416,33 @@ class MainWindow(QMainWindow):
         page.custom_title = f"SFTP · {spec.title}" if spec is not None else "SFTP"
         self.tabs._update_tab(page)
         return right
+
+    # -- server tools (Docker, SQL) --------------------------------------- #
+    def open_tool(self, kind: str, alias: str = "", where: str = "tab") -> DockerPane | SqlPane | None:
+        """Docker or SQL console for a host, in a new tab (or next to the current pane)."""
+        if not alias:
+            pane = self.tabs.current_pane()
+            alias = pane.spec.alias if pane is not None and pane.spec.kind is ConnectionKind.SSH else ""
+            alias = alias or self.sidebar.selected_alias() or ""
+        if not alias or self.is_git_host(alias):
+            QMessageBox.information(self, "VeyLix", "Select an SSH server first (sidebar or a connected terminal).")
+            return None
+        if not self.ensure_team_login(alias):
+            return None
+        spec = ConnectionSpec.ssh(alias)
+        if kind == "docker":
+            tool: DockerPane | SqlPane = DockerPane(spec, self.connections.open_ssh)
+        else:
+            tool = SqlPane(spec, self.connections.open_ssh, self.ctx.credentials)
+        tool.open_terminal_requested.connect(lambda s: self.open_spec(ConnectionSpec.ssh(s.alias)))
+        ref = self.tabs.current_item()
+        if where in ("right", "down") and ref is not None:
+            orientation = Qt.Orientation.Vertical if where == "down" else Qt.Orientation.Horizontal
+            self.tabs.split_pane(ref, tool, orientation)
+        else:
+            self.tabs.add_pane_tab(tool)
+        self.stack.setCurrentWidget(self.tabs)
+        return tool
 
     def files_alias(self, alias: str, where: str) -> None:
         if self.ensure_team_login(alias):

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ssh_terminal.errors import FriendlyError
+from ssh_terminal.i18n import tr
 from ssh_terminal.models.app_settings import AppSettings
 from ssh_terminal.models.connection import ConnectionKind, ConnectionSpec, SessionState
 from ssh_terminal.terminal.backends.base import CloseInfo
@@ -126,6 +127,8 @@ class PaneHeader(QWidget):
         layout.addWidget(self.badge)
         self.buttons: dict[str, QToolButton] = {}
         for key, icon_name, tip in (
+            ("docker", "container", tr("Docker on this server")),
+            ("sql", "database", tr("SQL console on this server")),
             ("broadcast", "broadcast", "Broadcast input: type in all terminals of this tab"),
             ("theme", "palette", "Terminal colors"),
             ("split_right", "split-right", "Split right: open another terminal side by side"),
@@ -147,6 +150,11 @@ class PaneHeader(QWidget):
         self.buttons["split_right"].clicked.connect(lambda: pane.action_requested.emit(pane, "split_right"))
         self.buttons["split_down"].clicked.connect(lambda: pane.action_requested.emit(pane, "split_down"))
         self.buttons["close"].clicked.connect(lambda: pane.action_requested.emit(pane, "close"))
+        self.buttons["docker"].clicked.connect(lambda: pane.action_requested.emit(pane, "docker"))
+        self.buttons["sql"].clicked.connect(lambda: pane.action_requested.emit(pane, "sql"))
+        is_ssh = pane.spec.kind is ConnectionKind.SSH and bool(pane.spec.alias)
+        self.buttons["docker"].setVisible(is_ssh)
+        self.buttons["sql"].setVisible(is_ssh)
         self.buttons["broadcast"].setCheckable(True)
         self.buttons["broadcast"].clicked.connect(lambda: pane.action_requested.emit(pane, "broadcast"))
         self.buttons["menu"].clicked.connect(
@@ -715,7 +723,7 @@ class TerminalTabs(QTabWidget):
 
     def _pane_updated(self, page: TabPage, pane: PaneBase) -> None:
         self._update_tab(page)
-        if pane is self.current_pane():
+        if pane is self.current_pane() or pane is self.current_item():  # terminals and tool cards
             self.pane_state_changed.emit(pane)
 
     def _update_tab(self, page: QWidget | None) -> None:
