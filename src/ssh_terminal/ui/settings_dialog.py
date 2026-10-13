@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ssh_terminal.i18n import LANGUAGES, tr
 from ssh_terminal.models.app_settings import DEFAULT_KEYBINDINGS, KEYBINDING_LABELS, AppSettings
 from ssh_terminal.terminal.color_schemes import SCHEMES
 from ssh_terminal.ui.dialogs import mark_primary
@@ -103,6 +104,12 @@ class SettingsDialog(QDialog):
             self.default_shell.addItem(name, name)
         self.default_shell.setCurrentIndex(max(0, self.default_shell.findData(s.default_local_shell)))
         form.addRow("Local terminal", self.default_shell)
+        self.language = QComboBox()
+        for code, name in LANGUAGES.items():
+            self.language.addItem(tr(name) if code == "" else name, code)
+        self.language.setCurrentIndex(max(0, self.language.findData(s.language)))
+        self.language.setToolTip(tr("Applies to panels opened from now on; restart VeyLix to apply it everywhere."))
+        form.addRow(tr("Language"), self.language)
         self.watch = QCheckBox("Watch the SSH config for external changes")
         self.watch.setChecked(s.watch_config)
         form.addRow("", self.watch)
@@ -317,6 +324,7 @@ class SettingsDialog(QDialog):
         s = self.result_settings
         s.ssh_config_path = self.config_path.text().strip()
         s.default_local_shell = self.default_shell.currentData() or ""
+        s.language = self.language.currentData() or ""
         s.watch_config = self.watch.isChecked()
         s.auto_reload_config = self.auto_reload.isChecked()
         s.confirm_close_connected = self.confirm_close.isChecked()

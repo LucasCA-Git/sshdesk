@@ -65,6 +65,10 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     monkeypatch.setenv("VEYLIX_HOME", str(tmp_path / "appdir"))
+    import ssh_terminal.i18n as i18n  # assertions use English texts, whatever the machine's language
+
+    monkeypatch.setattr(i18n, "system_language", lambda: "en")
+    i18n.set_language("en")
     return home
 
 

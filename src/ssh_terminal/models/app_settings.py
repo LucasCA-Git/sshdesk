@@ -95,6 +95,7 @@ class AppSettings:
     auto_reload_config: bool = False  # reload silently instead of asking
     restore_tabs: bool = False
     default_local_shell: str = ""  # ShellProfile.name; empty = platform default
+    language: str = ""  # "" = system, "en", "pt_BR" (ssh_terminal.i18n)
     # Appearance
     theme: str = "dark"  # dark | light | system
     color_scheme: str = "Midnight"
