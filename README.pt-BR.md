@@ -9,7 +9,7 @@
 
 **Cliente SSH gratuito e open source para Windows, macOS e Linux que usa o seu `~/.ssh/config` como fonte da verdade.**
 
-Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP com arrastar e soltar e compartilhamento em equipe no seu próprio servidor.
+Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP com arrastar e soltar, Docker e console SQL via SSH e compartilhamento em equipe no seu próprio servidor.
 
 [![Build](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml/badge.svg)](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/LucasCA-Git/sshdesk?sort=semver)](https://github.com/LucasCA-Git/sshdesk/releases)
@@ -53,6 +53,25 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 - Usa a mesma autenticação, senha salva e ProxyJump dos terminais. Cada transferência abre o próprio canal SFTP na conexão existente, então não há segundo login.
 
 <p align="center"><img src="docs/images/sftp.png" alt="SFTP: este computador e um servidor lado a lado" width="820"></p>
+
+### Docker
+
+- **Containers** de qualquer servidor, lidos com `docker ps` via SSH (nada é instalado no servidor): estado, nome, imagem, status, portas e ID. Busca, *Somente em execução*, colunas ordenáveis e atualização automática.
+- **Iniciar, Parar, Reiniciar, Pausar, Retomar e Remover** (com confirmação, *forçar* e *volumes*). Os botões seguem o estado do container.
+- **Logs** abaixo da tabela: últimas *N* linhas, *Seguir* em tempo real, timestamps e *Parar leitura*. Linhas WARN em amarelo e ERROR em vermelho, com limite de 10.000 linhas na memória.
+- **Imagens**: baixar `imagem:tag` com progresso, remover e limpar as não usadas.
+- Ajuda clara quando o Docker não está instalado, o serviço está parado ou o seu usuário não tem acesso ao socket: use **sudo** (a senha fica só na memória) ou copie o comando `usermod -aG docker`.
+
+<p align="center"><img src="docs/images/docker.png" alt="Docker: containers com ações e logs ao vivo" width="820"></p>
+
+### Console SQL
+
+- **MySQL / MariaDB e PostgreSQL por túnel SSH**: o banco não precisa estar exposto. O VeyLix encaminha uma porta local até `127.0.0.1:3306/5432` *como o servidor enxerga*, e sugere os bancos publicados por containers Docker.
+- Tabelas do banco com filtro (clique = `SELECT * … LIMIT 100`), estrutura e contagem de linhas. Editor com cores de SQL e autocompletar de palavras-chave, tabelas e colunas; **Ctrl+Enter** executa a seleção ou a instrução sob o cursor.
+- Grade de resultados rápida mesmo com milhares de linhas: ordenação, `NULL` destacado, copiar célula/linha, **exportar CSV/JSON**, *Máximo de linhas*, tempo limite e **Cancelar consulta**.
+- **Histórico** por servidor; confirmação antes de `DROP`, `TRUNCATE` e `DELETE`/`UPDATE` sem `WHERE`; modo **somente leitura** opcional. Senhas só são guardadas se você marcar *Lembrar*, criptografadas no cofre do sistema ou no cofre local.
+
+<p align="center"><img src="docs/images/sql.png" alt="Console SQL: tabelas, editor e resultados por túnel SSH" width="820"></p>
 
 ### Conexões e segurança
 

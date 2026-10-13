@@ -9,7 +9,7 @@
 
 **A free, open-source SSH client for Windows, macOS and Linux that treats your `~/.ssh/config` as the source of truth.**
 
-Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and optional team sharing on your own server.
+Tabs and splits, broadcast input, an SFTP file manager with drag and drop, Docker and an SQL console over SSH, and optional team sharing on your own server.
 
 [![Build](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml/badge.svg)](https://github.com/LucasCA-Git/sshdesk/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/LucasCA-Git/sshdesk?sort=semver)](https://github.com/LucasCA-Git/sshdesk/releases)
@@ -54,6 +54,25 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and o
 - Uses the same authentication, saved passwords and ProxyJump as the terminals. Every transfer opens its own SFTP channel on the existing connection, so there is no second login.
 
 <p align="center"><img src="docs/images/sftp.png" alt="SFTP: this computer and a server side by side" width="820"></p>
+
+### Docker
+
+- **Containers** of any server, read with `docker ps` over SSH (no agent installed): state dot, name, image, status, ports, ID. Search, *Only running*, sortable columns, auto refresh.
+- **Start, Stop, Restart, Pause, Resume, Remove** (with confirmation, *force* and *volumes*). Buttons follow the container's state.
+- **Logs** next to the table: last *N* lines, *Follow* live, timestamps, *Stop reading*. WARN lines in yellow and ERROR in red, memory capped at 10,000 lines.
+- **Images**: pull `image:tag` with progress, remove, clean up unused images.
+- Clear help when Docker is missing, the daemon is stopped or your user cannot use the socket: run it through **sudo** (password kept in memory only) or copy the `usermod -aG docker` fix.
+
+<p align="center"><img src="docs/images/docker.png" alt="Docker: containers with actions and live logs" width="820"></p>
+
+### SQL console
+
+- **MySQL / MariaDB and PostgreSQL through an SSH tunnel**: the database never has to be exposed. VeyLix forwards a local port to `127.0.0.1:3306/5432` *as seen from the server*, and it suggests databases published by Docker containers.
+- Tables of the database with a filter (click = `SELECT * … LIMIT 100`), structure, row count. Editor with SQL colors and completion of keywords, tables and columns; **Ctrl+Enter** runs the selection or the statement under the cursor.
+- Results grid that stays fast with thousands of rows: sort, `NULL` highlighted, copy cell/row, **export CSV/JSON**, *Max rows*, timeout and **Cancel query**.
+- **History** per server; a confirmation before `DROP`, `TRUNCATE` and `DELETE`/`UPDATE` without `WHERE`; an optional **read-only** mode. Passwords are only stored if you tick *Remember*, encrypted in the system keyring or the local vault.
+
+<p align="center"><img src="docs/images/sql.png" alt="SQL console: tables, editor and results through an SSH tunnel" width="820"></p>
 
 ### Connections & security
 

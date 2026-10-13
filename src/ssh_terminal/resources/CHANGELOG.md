@@ -7,6 +7,9 @@ Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
 ### New
 - SSHDesk is now **VeyLix** — *Secure access. Total control.* A unified workspace for server operations, with a new name and logo. Your hosts, groups, team logins, saved passwords and settings carry over automatically: the data folder moves to `VeyLix` on first start and the team `Include` in `~/.ssh/config` is updated. The command is now `veylix`.
+- **Docker** tab for any server (right-click a host › Docker, the container button on an SSH terminal, or SSH › Docker): containers with state, image, status, ports and ID; search and *Only running*; Start, Stop, Restart, Pause, Resume and Remove; logs with *Follow*, timestamps and WARN/ERROR colors; images with pull, remove and cleanup. Everything runs over SSH with the `docker` command already on the server. If your user cannot use Docker, run the panel through sudo (password kept in memory only).
+- **SQL console** for MySQL/MariaDB and PostgreSQL through an SSH tunnel, so the database never has to be exposed: tables with filter and structure, an editor with SQL colors and completion (Ctrl+Enter), a fast results grid with CSV/JSON export, *Max rows*, timeout and Cancel, history per server, a read-only mode and a confirmation before DROP, TRUNCATE or DELETE/UPDATE without WHERE. Databases published by Docker containers are suggested.
+- Language setting (Settings › General): English or Português (Brasil). The Docker and SQL screens are translated; the rest of the app follows.
 
 ## [1.3.0] - 2026-10-13
 
