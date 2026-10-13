@@ -3,6 +3,14 @@
 All notable changes to SSHDesk. The newest version is at the top.
 Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
+## [1.3.0] - 2026-10-13
+
+### New
+- Drag and dock: grab a terminal by its title bar and drop it on the left, right, top or bottom edge of another terminal to place it there. A highlight shows where it will land. You can also drag a host from the sidebar straight onto a terminal to open it beside or below. SFTP panels can be moved the same way.
+
+### Improved
+- The split menu (and its Files submenu) lists hosts the way the sidebar does: favorites first, then a submenu per group and sub-group (including team groups), then the hosts without a group.
+
 ## [1.2.0] - 2026-10-09
 
 ### New

@@ -35,7 +35,7 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, and o
 
 | | |
 |---|---|
-| **Split with any host** | Put two *different* servers side by side or below: another SSH host, a local shell or the same connection. Splits nest, and `Ctrl+Shift+G` arranges a grid. |
+| **Split with any host** | Put two *different* servers side by side or below: another SSH host, a local shell or the same connection. Splits nest, and `Ctrl+Shift+G` arranges a grid. **Drag a terminal by its title bar** (or a host from the sidebar) onto another terminal's edge to dock it there. |
 | **Broadcast input** | `Ctrl+Shift+I` sends what you type to every terminal of the tab. Broadcasting panes get a yellow border and a badge, so you always know. |
 | **Real terminal emulation** | xterm with 256/true color, alternate screen (vim, htop, less), mouse reporting, bracketed paste, UTF-8/CJK, IME and ABNT2 dead keys. Rendering uses a QPainter cell grid. |
 | **Local shells** | bash/zsh/fish with a real PTY on Linux; PowerShell 7, Windows PowerShell, cmd and WSL via ConPTY on Windows. |

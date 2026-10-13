@@ -34,7 +34,7 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 
 | | |
 |---|---|
-| **Split com qualquer host** | Dois servidores *diferentes* lado a lado ou um embaixo do outro: outro host SSH, um shell local ou a mesma conexão. Splits podem ser aninhados, e `Ctrl+Shift+G` organiza em grade. |
+| **Split com qualquer host** | Dois servidores *diferentes* lado a lado ou um embaixo do outro: outro host SSH, um shell local ou a mesma conexão. Splits podem ser aninhados, e `Ctrl+Shift+G` organiza em grade. **Arraste um terminal pela barra de título** (ou um host da barra lateral) até a borda de outro terminal para encaixá-lo ali. |
 | **Broadcast input** | `Ctrl+Shift+I`: o que você digita vai para todos os terminais da aba. A borda amarela e o selo deixam claro quando está ligado. |
 | **Emulação de terminal de verdade** | xterm com 256 cores e true color, tela alternativa (vim, htop, less), mouse, bracketed paste, UTF-8/CJK, IME e teclas mortas ABNT2. O desenho é uma grade de células com QPainter. |
 | **Shells locais** | bash/zsh/fish com PTY real no Linux; PowerShell 7, Windows PowerShell, cmd e WSL via ConPTY no Windows. |
