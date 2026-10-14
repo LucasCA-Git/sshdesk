@@ -13,6 +13,7 @@ PT_BR: dict[str, str] = {
     "Drag this bar onto another terminal to place it beside or below":
         "Arraste esta barra até outro terminal para colocá-la ao lado ou abaixo",
     "Connecting to <b>{host}</b>…": "Conectando em <b>{host}</b>…",
+    "Workstation {n}": "Workstation {n}",
     "Split right": "Dividir à direita",
     "Split down": "Dividir abaixo",
     "Close panel": "Fechar painel",

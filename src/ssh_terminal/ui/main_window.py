@@ -1502,7 +1502,6 @@ class MainWindow(QMainWindow):
             self.tabs.split_pane(first, pane, Qt.Orientation.Horizontal)
             QTimer.singleShot(0, pane.start)
         if page is not None:
-            page.custom_title = "Split view"
             page.arrange_grid()
             self.tabs.refresh_icons()
 

@@ -217,7 +217,7 @@ def test_split_view_grid_and_pane_themes(window, qapp) -> None:
     process(qapp, 200)
     page = window.tabs.current_page()
     panes = page.panes()
-    assert len(panes) == 4 and page.custom_title == "Split view"
+    assert len(panes) == 4 and window.tabs.tabText(window.tabs.indexOf(page)).startswith("Workstation 1")
     # 2x2 grid: a vertical splitter holding two horizontal rows
     root = page._root()
     assert root.orientation() == Qt.Orientation.Vertical and root.count() == 2
@@ -1086,3 +1086,30 @@ def test_select_copies_and_right_click_pastes(qapp) -> None:
     mouse(QEvent.Type.MouseButtonPress, cw * 8, right, right, Qt.KeyboardModifier.ShiftModifier)
     assert menus and sent == [b"hello"]  # Shift+right click: the menu, no paste
     w.deleteLater()
+
+
+def test_tabs_with_several_panels_are_numbered_workstations(window, qapp) -> None:
+    tabs = window.tabs
+    a = window.open_spec(ConnectionSpec.local(""))
+    page_a = tabs.current_page()
+    window.split_with(a, ConnectionSpec.local(""), Qt.Orientation.Horizontal)
+    window.split_with(a, ConnectionSpec.local(""), Qt.Orientation.Vertical)
+    c = window.open_spec(ConnectionSpec.local(""))
+    page_c = tabs.current_page()
+    single = tabs.tabText(tabs.indexOf(page_c))
+    window.split_with(c, ConnectionSpec.local(""), Qt.Orientation.Horizontal)
+    _flush()
+    try:
+        assert tabs.tabText(tabs.indexOf(page_a)) == "Workstation 1  [3]"
+        assert tabs.tabText(tabs.indexOf(page_c)) == "Workstation 2  [2]"
+        assert "Workstation" not in single  # one host: the tab keeps the host's name
+        tabs.close_pane(next(p for p in page_c.items() if p is not c))  # back to one panel
+        assert tabs.tabText(tabs.indexOf(page_c)) == c.title and page_c.workstation == 0
+        tabs.close_tab(tabs.indexOf(page_a))  # number 1 is free again
+        window.split_with(c, ConnectionSpec.local(""), Qt.Orientation.Horizontal)
+        assert tabs.tabText(tabs.indexOf(page_c)).startswith("Workstation 1")
+    finally:
+        _flush()
+        for page in tabs.pages():
+            for p in page.items():
+                p.close_session()

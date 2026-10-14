@@ -375,6 +375,7 @@ class TabPage(QWidget):
         self.active_item: PaneBase = first  # focused pane (terminal or files)
         self._last_terminal: TerminalPane | None = first if isinstance(first, TerminalPane) else None
         self.custom_title = ""
+        self.workstation = 0  # number shown as "Workstation N" while the tab holds several panels
         self.broadcast = False  # mirror typed input to every pane of this tab
         self.overlay: DockOverlay | None = None  # created by TerminalTabs (drag and dock)
 
@@ -781,14 +782,22 @@ class TerminalTabs(QTabWidget):
         pane = page.active_item
         panes = page.items()
         self._highlight(page)
-        title = page.custom_title or pane.title
         if len(panes) > 1:
+            if not page.workstation:  # the lowest number no other tab is using
+                used = {p.workstation for p in self.pages()}
+                page.workstation = next(n for n in range(1, len(used) + 2) if n not in used)
+            title = page.custom_title or tr("Workstation {n}", n=page.workstation)
             title += f"  [{len(panes)}]"
+        else:
+            page.workstation = 0  # back to one panel: the tab shows its name again
+            title = page.custom_title or pane.title
         if page.broadcast:
             title = "⦿ " + title
         self.setTabText(index, title)
         self.setTabIcon(index, status_dot(state_color(pane.state)))
         tip = pane.terminal_title or pane.title
+        if len(panes) > 1:
+            tip = "\n".join(p.title for p in panes) + f"\n\n{tip}"
         session = getattr(pane, "session", None)
         if session is not None and session.backend is not None:
             tip += f"\n{session.backend.description}"
