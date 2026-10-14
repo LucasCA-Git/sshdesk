@@ -29,13 +29,14 @@ from PySide6.QtWidgets import (
 
 from ssh_terminal import __app_name__, __version__
 from ssh_terminal.errors import ConfigError, FriendlyError, describe_exception
-from ssh_terminal.i18n import set_language
+from ssh_terminal.i18n import set_language, tr
 from ssh_terminal.models.app_settings import GROUP_SEP, group_label, normalize_group
 from ssh_terminal.models.connection import ConnectionKind, ConnectionSpec, SessionState
 from ssh_terminal.models.ssh_host import SSHHost
 from ssh_terminal.services import diagnostics_service
 from ssh_terminal.services.app_context import AppContext
 from ssh_terminal.services.connection_service import ConnectionService
+from ssh_terminal.services.docker_service import DatabaseCandidate
 from ssh_terminal.services.host_identity import alias_key, dedupe, find_duplicate, same_server
 from ssh_terminal.services.team_service import SyncResult, TeamApiError, TeamInfo, host_to_payload
 from ssh_terminal.ssh.host_classifier import HostRole, git_remote_example, guess_role, host_role
@@ -50,6 +51,7 @@ from ssh_terminal.ui.dialogs import confirm, mark_primary, show_error
 from ssh_terminal.ui.docker_pane import DockerPane
 from ssh_terminal.ui.file_pane import FilePane
 from ssh_terminal.ui.grip_splitter import GripSplitter
+from ssh_terminal.ui.host_picker import HostNode, HostPicker, add_host_picker
 from ssh_terminal.ui.info_dialogs import (
     DiagnosticsDialog,
     ExternalChangeChoice,
@@ -1259,7 +1261,7 @@ class MainWindow(QMainWindow):
         elif action == "close":
             self.tabs.close_pane(pane)
         elif action in ("docker", "sql") and pane.spec is not None and pane.spec.alias:
-            self.open_tool(action, pane.spec.alias)
+            self.open_tool(action, pane.spec.alias, where="right", ref=pane)  # beside that terminal
 
     # -- split with another terminal / broadcast --------------------------- #
     def _shell_hosts(self) -> list:  # noqa: ANN201 - list[SSHHost]
@@ -1267,21 +1269,17 @@ class MainWindow(QMainWindow):
         hosts.sort(key=lambda h: (not self.settings.is_favorite(h.alias), h.alias.lower()))
         return hosts
 
-    def _host_actions(self, menu: QMenu, slot) -> None:  # noqa: ANN001 - slot(alias)
-        """Hosts for a menu, organised like the sidebar: favorites, then a submenu per
-        group / sub-group (personal, then teams), then the hosts without a group."""
+    def _host_tree(self) -> list[HostNode]:
+        """Hosts organised like the sidebar: favorites, then a node per group / sub-group
+        (personal, then teams), then the hosts without a group."""
         hosts = self._shell_hosts()
 
-        def add(target: QMenu, host: SSHHost) -> None:
+        def leaf(host: SSHHost) -> HostNode:
             name = "star-filled" if self.settings.is_favorite(host.alias) else "server"
             label = host.alias if not host.hostname or host.hostname == host.alias else f"{host.alias}   ·   {host.hostname}"
-            target.addAction(icon(name), label, lambda a=host.alias: self.ensure_team_login(a) and slot(a))
+            return HostNode(label, name, host.alias, host.hostname or "")
 
-        favorites = [h for h in hosts if self.settings.is_favorite(h.alias)]
-        for host in favorites:
-            add(menu, host)
-        if favorites:
-            menu.addSeparator()
+        nodes = [leaf(h) for h in hosts if self.settings.is_favorite(h.alias)]
         hosts = [h for h in hosts if not self.settings.is_favorite(h.alias)]  # listed once, at the top
 
         # where each host goes: (root label, group path); personal groups win over team groups
@@ -1293,38 +1291,33 @@ class MainWindow(QMainWindow):
                 placement[host.alias] = ("", group)
             elif team is not None:  # keyed by team id: two teams may share a name
                 placement[host.alias] = (f"{team.id}\x00Team · {team.name}", normalize_group(self.ctx.teams.group_of(host.alias)))
-        menus: dict[tuple[str, str], QMenu] = {}
+        groups: dict[tuple[str, str], HostNode] = {}
 
-        def label(text: str) -> str:
-            return text.split("\x00", 1)[-1].replace("&", "&&")  # "&" would become a mnemonic
-
-        def submenu(root: str, path: str) -> QMenu:
+        def group_node(root: str, path: str) -> HostNode:
             key = (root, path)
-            if key not in menus:
-                if not path:  # a team's own submenu
-                    menus[key] = menu.addMenu(icon("server"), label(root))
+            if key not in groups:
+                if not path:  # a team's own node
+                    groups[key] = HostNode(root.split("\x00", 1)[-1], "server")
+                    nodes.append(groups[key])
                 else:
-                    parent_path, _sep, leaf = path.rpartition(GROUP_SEP)
-                    parent = submenu(root, parent_path) if (parent_path or root) else menu
-                    menus[key] = parent.addMenu(icon("folder"), label(leaf))
-            return menus[key]
+                    parent_path, _sep, leaf_name = path.rpartition(GROUP_SEP)
+                    groups[key] = HostNode(leaf_name, "folder")
+                    (group_node(root, parent_path).children if (parent_path or root) else nodes).append(groups[key])
+            return groups[key]
 
-        paths = sorted(set(placement.values()), key=lambda rp: (rp[0] != "", label(rp[0]).lower(),
+        paths = sorted(set(placement.values()), key=lambda rp: (rp[0] != "", rp[0].split("\x00", 1)[-1].lower(),
                                                                 [x.lower() for x in rp[1].split(GROUP_SEP)]))
-        for root, path in paths:  # create every submenu first so sub-groups come before hosts
-            submenu(root, path)
+        for root, path in paths:  # create every group first so sub-groups come before hosts
+            group_node(root, path)
         for host in hosts:
             if host.alias in placement:
-                add(submenu(*placement[host.alias]), host)
+                group_node(*placement[host.alias]).children.append(leaf(host))
+        nodes.extend(leaf(h) for h in hosts if h.alias not in placement)
+        return nodes
 
-        loose = [h for h in hosts if h.alias not in placement]
-        if menus and loose:
-            menu.addSeparator()
-        target = menu
-        for i, host in enumerate(loose):
-            if i == 20:
-                target = menu.addMenu(f"More Hosts ({len(loose) - 20})")
-            add(target, host)
+    def _host_actions(self, menu: QMenu, slot) -> HostPicker:  # noqa: ANN001 - slot(alias)
+        """A searchable host tree inside ``menu``; picking a host calls ``slot(alias)``."""
+        return add_host_picker(menu, self._host_tree(), lambda a: self.ensure_team_login(a) and slot(a))
 
     def _fill_split_menu(self, menu: QMenu, pane: PaneBase, orientation: Qt.Orientation) -> None:
         """Choices for the new pane: same connection, a local shell, any SSH host, or files (SFTP)."""
@@ -1341,6 +1334,15 @@ class MainWindow(QMainWindow):
                         lambda: self.split_files_with(pane, ConnectionSpec.local(), orientation))
         files.addSeparator()
         self._host_actions(files, lambda a: self.split_files_with(pane, ConnectionSpec.ssh(a), orientation))
+        if pane.spec is not None and pane.spec.kind is ConnectionKind.SSH and pane.spec.alias \
+                and not self.is_git_host(pane.spec.alias):
+            alias = pane.spec.alias
+            where = "down" if orientation is Qt.Orientation.Vertical else "right"
+            menu.addSection(tr("Server tools"))
+            menu.addAction(icon("container"), tr("Docker on {host}", host=alias),
+                           lambda: self.open_tool("docker", alias, where=where, ref=pane))
+            menu.addAction(icon("database"), tr("SQL console on {host}", host=alias),
+                           lambda: self.open_tool("sql", alias, where=where, ref=pane))
         menu.addSection("Local terminal")
         for shell in self.connections.shells:
             menu.addAction(icon("terminal"), shell.name,
@@ -1418,8 +1420,11 @@ class MainWindow(QMainWindow):
         return right
 
     # -- server tools (Docker, SQL) --------------------------------------- #
-    def open_tool(self, kind: str, alias: str = "", where: str = "tab") -> DockerPane | SqlPane | None:
-        """Docker or SQL console for a host, in a new tab (or next to the current pane)."""
+    def open_tool(self, kind: str, alias: str = "", where: str = "tab", ref: PaneBase | None = None,
+                  preset: DatabaseCandidate | None = None) -> DockerPane | SqlPane | None:
+        """Docker or SQL console for a host, in a new tab or next to ``ref`` (default: the current pane).
+
+        ``preset``: a database found in a Docker container, offered first by the SQL console."""
         if not alias:
             pane = self.tabs.current_pane()
             alias = pane.spec.alias if pane is not None and pane.spec.kind is ConnectionKind.SSH else ""
@@ -1433,10 +1438,14 @@ class MainWindow(QMainWindow):
         if kind == "docker":
             tool: DockerPane | SqlPane = DockerPane(spec, self.connections.open_ssh)
         else:
-            tool = SqlPane(spec, self.connections.open_ssh, self.ctx.credentials)
+            tool = SqlPane(spec, self.connections.open_ssh, self.ctx.credentials, preset=preset)
         tool.open_terminal_requested.connect(lambda s: self.open_spec(ConnectionSpec.ssh(s.alias)))
-        ref = self.tabs.current_item()
+        if isinstance(tool, DockerPane):
+            tool.sql_requested.connect(lambda s, cand, src=tool: self.open_tool("sql", s.alias, "right", src, cand))
+        if ref is None or not shiboken6.isValid(ref) or self.tabs._page_of(ref) is None:
+            ref = self.tabs.current_item()
         if where in ("right", "down") and ref is not None:
+            self.tabs.setCurrentWidget(self.tabs._page_of(ref))
             orientation = Qt.Orientation.Vertical if where == "down" else Qt.Orientation.Horizontal
             self.tabs.split_pane(ref, tool, orientation)
         else:
