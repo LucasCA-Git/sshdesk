@@ -532,6 +532,9 @@ class TerminalTabs(QTabWidget):
         self.closed_specs: list[list[ConnectionSpec]] = []
         self._dragging: PaneBase | None = None  # pane being dragged by its header
         self._host_dragging = False  # a host is being dragged from the sidebar
+        self._tab_press: tuple[int, QPoint] | None = None  # tab under a left press (drag a tab out to dock it)
+        self._previous_page: TabPage | None = None  # tab shown before the current one
+        self._shown_page: TabPage | None = None
         self.setObjectName("TerminalTabs")
         self.tabBar().setDrawBase(False)
         self.setTabsClosable(True)
@@ -653,6 +656,12 @@ class TerminalTabs(QTabWidget):
         drag.setPixmap(preview.scaledToWidth(min(280, max(preview.width(), 1)), Qt.TransformationMode.SmoothTransformation))
         self._dragging = pane
         self.tabBar().setAcceptDrops(True)
+        if len(page.items()) < 2:  # alone in its tab: show where it can go right away
+            other = self._previous_page if self._previous_page in self.pages() and self._previous_page is not page \
+                else self.widget(self.indexOf(page) - 1 if self.indexOf(page) > 0 else self.indexOf(page) + 1)
+            if isinstance(other, TabPage):
+                self.setCurrentWidget(other)
+                page = other
         self._overlay(page).begin(pane)
         try:
             drag.exec(Qt.DropAction.MoveAction)
@@ -790,6 +799,11 @@ class TerminalTabs(QTabWidget):
         self.setTabToolTip(index, tip)
 
     def _current_changed(self, _index: int) -> None:
+        page_now = self.current_page()
+        if page_now is not self._shown_page:
+            if self._shown_page is not None and shiboken6.isValid(self._shown_page):
+                self._previous_page = self._shown_page
+            self._shown_page = page_now
         self.current_pane_changed.emit(self.current_pane())
         page = self.current_page()
         self.broadcast_changed.emit(bool(page and page.broadcast))
@@ -839,21 +853,67 @@ class TerminalTabs(QTabWidget):
         from PySide6.QtCore import QEvent
 
         bar = self.tabBar()
-        if obj is bar and event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
+        if obj is not bar:
+            return super().eventFilter(obj, event)
+        kind = event.type()
+        if kind == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
             index = bar.tabAt(event.position().toPoint())
             if index >= 0:
                 self.close_tab(index)
                 return True
-        if obj is bar and event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+        if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            index = bar.tabAt(event.position().toPoint())
+            self._tab_press = (index, event.position().toPoint()) if index >= 0 else None
+        elif kind == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            self._tab_press = None
+        elif kind == QEvent.Type.MouseMove and self._tab_press is not None \
+                and event.buttons() & Qt.MouseButton.LeftButton and self._dragging is None:
+            y = event.position().toPoint().y()
+            if y > bar.height() + 16 or y < -16:  # pulled out of the tab bar: dock its panel
+                self._drag_tab_out(self._tab_press)
+                return True
+        if kind in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
             mime = event.mimeData()
             if (self._dragging is not None and mime.hasFormat(PANE_MIME)) or (self._host_dragging and mime.hasFormat(HOST_MIME)):
                 self._hover_tab(bar.tabAt(event.position().toPoint()))
-                event.accept()  # keep receiving moves; dropping on the title itself does nothing
+                event.accept()  # keep receiving moves
                 return True
-        if obj is bar and event.type() == QEvent.Type.Drop:
-            event.ignore()
+        if kind == QEvent.Type.Drop:
+            self._drop_on_tab(bar.tabAt(event.position().toPoint()), event.mimeData())
+            event.accept()
             return True
         return super().eventFilter(obj, event)
+
+    def _drag_tab_out(self, press: tuple[int, QPoint]) -> None:
+        """A tab was pulled down out of the tab bar: drag its panel to dock it beside another one."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
+
+        index, pos = press
+        self._tab_press = None
+        page = self.widget(index)
+        if not isinstance(page, TabPage):
+            return
+        bar = self.tabBar()
+        # end the tab bar's own "move tab" gesture where it started, then start ours
+        release = QMouseEvent(QEvent.Type.MouseButtonRelease, pos.toPointF(), bar.mapToGlobal(pos).toPointF(),
+                              Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(bar, release)
+        self._drag_pane(page.active_item)
+
+    def _drop_on_tab(self, index: int, mime: QMimeData) -> None:
+        """Dropped on a tab title: put it to the right of that tab's focused panel."""
+        page = self.widget(index) if index >= 0 else None
+        if not isinstance(page, TabPage):
+            return
+        target = page.active_item
+        if mime.hasFormat(PANE_MIME) and self._dragging is not None and target is not self._dragging:
+            source = self._dragging
+            QTimer.singleShot(0, lambda: self.move_pane(source, target, Qt.Orientation.Horizontal, False))
+        elif mime.hasFormat(HOST_MIME) and self._host_dragging:
+            alias = bytes(mime.data(HOST_MIME)).decode()
+            QTimer.singleShot(0, lambda: self.host_dropped.emit(alias, target, Qt.Orientation.Horizontal, False))
 
     def _hover_tab(self, index: int) -> None:
         """While dragging, hovering a tab title opens that tab with its drop zones."""
