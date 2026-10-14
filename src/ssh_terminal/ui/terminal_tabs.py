@@ -530,6 +530,8 @@ class TerminalTabs(QTabWidget):
         self.settings = settings
         self._shell_names = shell_names
         self.closed_specs: list[list[ConnectionSpec]] = []
+        self._dragging: PaneBase | None = None  # pane being dragged by its header
+        self._host_dragging = False  # a host is being dragged from the sidebar
         self.setObjectName("TerminalTabs")
         self.tabBar().setDrawBase(False)
         self.setTabsClosable(True)
@@ -590,17 +592,25 @@ class TerminalTabs(QTabWidget):
         return page.active_item if page else None
 
     def _wire(self, pane: PaneBase, page: TabPage) -> None:
-        pane.activated.connect(lambda p: self._activate(page, p))
-        pane.state_changed.connect(lambda p: self._pane_updated(page, p))
-        pane.title_changed.connect(lambda p: self._pane_updated(page, p))
+        # look the tab up when a signal fires: a pane can be dragged to another tab
+        pane.activated.connect(lambda p: self._on_page_of(p, self._activate))
+        pane.state_changed.connect(lambda p: self._on_page_of(p, self._pane_updated))
+        pane.title_changed.connect(lambda p: self._on_page_of(p, self._pane_updated))
         pane.context_menu.connect(self.pane_context_menu)
         pane.action_requested.connect(self.pane_action)
         pane.drag_requested.connect(self._drag_pane)
         if isinstance(pane, TerminalPane):
             pane.edit_requested.connect(self.edit_connection_requested)
             pane.session_closed.connect(self.session_closed)
-            pane.terminal.user_input.connect(lambda data, src=pane: self._broadcast_input(page, src, data))
+            pane.terminal.user_input.connect(lambda data, src=pane: self._on_page_of(src, lambda pg, s: self._broadcast_input(pg, s, data)))
             pane.set_broadcast(page.broadcast)
+
+    def _on_page_of(self, pane: PaneBase, slot: Callable[[TabPage, PaneBase], None]) -> None:
+        if not shiboken6.isValid(pane):
+            return
+        page = self._page_of(pane)
+        if page is not None:
+            slot(page, pane)
 
     def add_pane_tab(self, pane: PaneBase) -> TabPage:
         page = TabPage(pane)
@@ -628,9 +638,12 @@ class TerminalTabs(QTabWidget):
         return page.overlay
 
     def _drag_pane(self, pane: PaneBase) -> None:
-        """A pane's header was dragged: show the drop zones and move it where it is dropped."""
+        """A pane's header was dragged: show the drop zones and move it where it is dropped.
+
+        Hovering another tab's title switches to that tab, so a pane can also be docked
+        beside a pane of another tab."""
         page = self._page_of(pane)
-        if page is None or len(page.items()) < 2:
+        if page is None or (len(page.items()) < 2 and self.count() < 2):
             return  # nothing to dock next to
         drag = QDrag(pane)
         mime = QMimeData()
@@ -638,20 +651,28 @@ class TerminalTabs(QTabWidget):
         drag.setMimeData(mime)
         preview = pane.grab()
         drag.setPixmap(preview.scaledToWidth(min(280, max(preview.width(), 1)), Qt.TransformationMode.SmoothTransformation))
-        overlay = self._overlay(page)
-        overlay.begin(pane)
+        self._dragging = pane
+        self.tabBar().setAcceptDrops(True)
+        self._overlay(page).begin(pane)
         try:
             drag.exec(Qt.DropAction.MoveAction)
         finally:
-            overlay.end()
+            self._dragging = None
+            self.tabBar().setAcceptDrops(False)
+            self.end_host_drag()
 
     def begin_host_drag(self) -> None:
         """A host is being dragged from the sidebar: show drop zones on the current tab."""
+        self._host_dragging = True
+        self.tabBar().setAcceptDrops(True)
         page = self.current_page()
         if page is not None and page.isVisible():
             self._overlay(page).begin(None)
 
     def end_host_drag(self) -> None:
+        self._host_dragging = False
+        if self._dragging is None:
+            self.tabBar().setAcceptDrops(False)
         for page in self.pages():
             if page.overlay is not None:
                 page.overlay.end()
@@ -670,11 +691,27 @@ class TerminalTabs(QTabWidget):
         if not (shiboken6.isValid(pane) and shiboken6.isValid(target)):
             return  # closed between the drop and this deferred call
         page = self._page_of(pane)
-        if page is None or pane is target or self._page_of(target) is not page:
+        dest = self._page_of(target)
+        if page is None or dest is None or pane is target:
             return
-        page.move(pane, target, orientation, before)
-        page.active_pane = pane
-        self._update_tab(page)
+        if dest is page:
+            page.move(pane, target, orientation, before)
+        else:
+            page.detach(pane)
+            dest.split(target, pane, orientation, before)
+            if isinstance(pane, TerminalPane):
+                pane.set_broadcast(dest.broadcast)
+            if page.items():
+                if page.active_item is pane or page.active_item is None:
+                    page.active_pane = page.items()[0]
+                self._update_tab(page)
+            else:  # the tab is empty now
+                self.removeTab(self.indexOf(page))
+                page.deleteLater()
+            self.setCurrentWidget(dest)
+        dest.active_pane = pane
+        self._update_tab(dest)
+        self.current_pane_changed.emit(self.current_pane())
         QTimer.singleShot(0, pane.focus_target().setFocus)
 
     # -- broadcast input ------------------------------------------------- #
@@ -801,12 +838,33 @@ class TerminalTabs(QTabWidget):
     def eventFilter(self, obj, event) -> bool:  # noqa: N802, ANN001
         from PySide6.QtCore import QEvent
 
-        if obj is self.tabBar() and event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
-            index = self.tabBar().tabAt(event.position().toPoint())
+        bar = self.tabBar()
+        if obj is bar and event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
+            index = bar.tabAt(event.position().toPoint())
             if index >= 0:
                 self.close_tab(index)
                 return True
+        if obj is bar and event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+            mime = event.mimeData()
+            if (self._dragging is not None and mime.hasFormat(PANE_MIME)) or (self._host_dragging and mime.hasFormat(HOST_MIME)):
+                self._hover_tab(bar.tabAt(event.position().toPoint()))
+                event.accept()  # keep receiving moves; dropping on the title itself does nothing
+                return True
+        if obj is bar and event.type() == QEvent.Type.Drop:
+            event.ignore()
+            return True
         return super().eventFilter(obj, event)
+
+    def _hover_tab(self, index: int) -> None:
+        """While dragging, hovering a tab title opens that tab with its drop zones."""
+        page = self.widget(index) if index >= 0 else None
+        if not isinstance(page, TabPage) or page is self.currentWidget():
+            return
+        for other in self.pages():
+            if other is not page and other.overlay is not None:
+                other.overlay.end()
+        self.setCurrentWidget(page)
+        self._overlay(page).begin(self._dragging)
 
     def _tab_menu(self, pos: QPoint) -> None:
         bar: QTabBar = self.tabBar()
