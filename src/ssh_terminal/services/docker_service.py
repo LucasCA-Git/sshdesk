@@ -168,6 +168,9 @@ class DatabaseCandidate:
     port: int  # published port on the server
     image: str
     host: str = "127.0.0.1"  # where it is published (as seen from the server)
+    user: str = ""  # from the container's environment (docker inspect), when known
+    database: str = ""
+    password: str = field(default="", repr=False)
 
     def describe(self) -> str:
         return f"{self.container} ({self.image}) → {self.host}:{self.port}"
@@ -177,13 +180,82 @@ _DB_IMAGES = (("postgres", "postgres", 5432), ("postgis", "postgres", 5432), ("t
               ("mariadb", "mysql", 3306), ("mysql", "mysql", 3306), ("percona", "mysql", 3306))
 
 
+def _db_kind(image: str) -> tuple[str, int] | None:
+    image = image.lower().rsplit("/", 1)[-1]
+    return next(((kind, port) for key, kind, port in _DB_IMAGES if image.startswith(key)), None)
+
+
+def is_database_image(image: str) -> bool:
+    return _db_kind(image) is not None
+
+
+def _credentials(kind: str, env: dict[str, str]) -> tuple[str, str, str]:
+    """(user, database, password) the official images were started with."""
+    if kind == "postgres":
+        user = env.get("POSTGRES_USER") or "postgres"
+        return user, env.get("POSTGRES_DB") or user, env.get("POSTGRES_PASSWORD", "")
+    for prefix in ("MARIADB_", "MYSQL_"):
+        user, password = env.get(prefix + "USER", ""), env.get(prefix + "PASSWORD", "")
+        database = env.get(prefix + "DATABASE", "")
+        if user and password:
+            return user, database, password
+        root = env.get(prefix + "ROOT_PASSWORD", "")
+        if root:
+            return "root", database, root
+    return "root", env.get("MARIADB_DATABASE") or env.get("MYSQL_DATABASE", ""), ""
+
+
+def parse_inspect_targets(text: str) -> list[DatabaseCandidate]:
+    """Databases in ``docker inspect`` output, reachable from the server.
+
+    Published port first; otherwise the container's own address on its Docker
+    network (the server can reach it, so nothing has to be exposed); ``127.0.0.1``
+    for ``--network host``. User, database and password come from the environment
+    the official images read (``POSTGRES_*``, ``MYSQL_*``, ``MARIADB_*``)."""
+    try:
+        items = json.loads(text or "[]")
+    except json.JSONDecodeError:
+        return []
+    found = []
+    for data in items if isinstance(items, list) else []:
+        if not isinstance(data, dict):
+            continue
+        config = data.get("Config") or {}
+        image = str(config.get("Image") or data.get("Image") or "")
+        match = _db_kind(image)
+        if match is None or not (data.get("State") or {}).get("Running"):
+            continue
+        kind, internal = match
+        name = str(data.get("Name") or data.get("Id", "")[:12]).lstrip("/")
+        network = data.get("NetworkSettings") or {}
+        host, port = "", 0
+        for binding in (network.get("Ports") or {}).get(f"{internal}/tcp") or []:
+            ip = str(binding.get("HostIp") or "").strip("[]")
+            if str(binding.get("HostPort") or "").isdigit():
+                host = ip if ip and ip not in ("0.0.0.0", "::") else "127.0.0.1"  # all interfaces -> loopback
+                port = int(binding["HostPort"])
+                break
+        if not port:
+            if (data.get("HostConfig") or {}).get("NetworkMode") == "host":
+                host, port = "127.0.0.1", internal
+            else:
+                ips = [str(n.get("IPAddress") or "") for n in (network.get("Networks") or {}).values() if isinstance(n, dict)]
+                ips = [ip for ip in ips if ip] or ([network["IPAddress"]] if network.get("IPAddress") else [])
+                if not ips:
+                    continue
+                host, port = ips[0], internal
+        env = dict(item.split("=", 1) for item in config.get("Env") or [] if isinstance(item, str) and "=" in item)
+        user, database, password = _credentials(kind, env)
+        found.append(DatabaseCandidate(name, kind, port, image, host, user, database, password))
+    return found
+
+
 def database_candidates(containers: list[Container]) -> list[DatabaseCandidate]:
     found = []
     for c in containers:
         if not c.running:
             continue
-        image = c.image.lower().rsplit("/", 1)[-1]
-        match = next(((kind, port) for key, kind, port in _DB_IMAGES if image.startswith(key)), None)
+        match = _db_kind(c.image)
         if match is None:
             continue
         kind, internal = match
@@ -265,6 +337,13 @@ class DockerClient:
     def summary(self) -> DockerSummary:
         version = self.version()
         return DockerSummary(version, self.containers(), self.images())
+
+    def database_targets(self, containers: list[Container]) -> list[DatabaseCandidate]:
+        """Databases running in ``containers``, with address and login (see :func:`parse_inspect_targets`)."""
+        refs = [quote(safe_ref(c.id or c.name)) for c in containers if c.running and is_database_image(c.image)]
+        if not refs:
+            return []
+        return parse_inspect_targets(self._run("docker inspect " + " ".join(refs)))
 
     def action(self, action: str, ref: str, force: bool = False, volumes: bool = False) -> str:
         return self._run(action_command(action, ref, force, volumes), timeout=120)

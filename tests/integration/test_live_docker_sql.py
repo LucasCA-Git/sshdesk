@@ -160,6 +160,28 @@ def test_docker_database_candidates(connection) -> None:
     assert [(c.container, c.kind, c.port) for c in found] == [("db", "postgres", 5433), ("my", "mysql", 3307)]
 
 
+@pytest.mark.skipif(not os.environ.get("VEYLIX_LIVE_DOCKER"), reason="set VEYLIX_LIVE_DOCKER=1")
+def test_docker_database_targets_from_inspect(connection) -> None:
+    """“Open in SQL console”: address and login of a database container, published or not."""
+    runner = RemoteRunner(connection)
+    image = runner.run("docker images --format '{{.Repository}}:{{.Tag}}' | head -1").out.strip()
+    runner.run(f"docker tag {image} postgres:16-veylix && docker tag {image} mariadb:11-veylix")
+    try:
+        assert runner.run("docker run -d --name vx-pg -e POSTGRES_USER=app -e POSTGRES_PASSWORD=s3cret "
+                          "-e POSTGRES_DB=shop postgres:16-veylix sleep 600").ok
+        assert runner.run("docker run -d --name vx-my -p 127.0.0.1:13306:3306 -e MARIADB_ROOT_PASSWORD=rootpw "
+                          "mariadb:11-veylix sleep 600").ok
+        docker = DockerClient(runner)
+        targets = {t.container: t for t in docker.database_targets(docker.containers())}
+        pg, my = targets["vx-pg"], targets["vx-my"]
+        ip = runner.run("docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' vx-pg").out.strip()
+        assert (pg.kind, pg.host, pg.port, pg.user, pg.database, pg.password) == ("postgres", ip, 5432, "app", "shop", "s3cret")
+        assert (my.kind, my.host, my.port, my.user, my.password) == ("mysql", "127.0.0.1", 13306, "root", "rootpw")
+        assert "s3cret" not in repr(pg)
+    finally:
+        runner.run("docker rm -f vx-pg vx-my; docker rmi postgres:16-veylix mariadb:11-veylix")
+
+
 # ---------------------------------------------------------------------- #
 def _profile(env: str, kind: str) -> tuple[SqlProfile, str]:
     creds, port = os.environ[env].rsplit("@", 1)

@@ -247,3 +247,37 @@ def test_csv_export_neutralises_formulas() -> None:
 def test_database_candidate_keeps_the_published_ip() -> None:
     c = Container("1", "pg", "postgres:16", "Up", "running", "10.0.0.5:5433->5432/tcp")
     assert database_candidates([c])[0].host == "10.0.0.5"
+
+
+def test_inspect_targets_address_and_login() -> None:
+    import json
+
+    from ssh_terminal.services.docker_service import parse_inspect_targets
+
+    def item(name, image, env, ports=None, nets=None, mode="bridge", running=True):  # noqa: ANN001, ANN202
+        return {"Name": "/" + name, "State": {"Running": running}, "Config": {"Image": image, "Env": env},
+                "HostConfig": {"NetworkMode": mode},
+                "NetworkSettings": {"Ports": ports or {}, "Networks": nets or {}}}
+
+    data = [
+        item("pg", "postgres:16", ["POSTGRES_PASSWORD=pw", "PATH=/bin"], {"5432/tcp": None},
+             {"app_default": {"IPAddress": "172.18.0.2"}}),
+        item("pub", "bitnami/postgresql:16", ["POSTGRES_USER=u", "POSTGRES_DB=d"],
+             {"5432/tcp": [{"HostIp": "0.0.0.0", "HostPort": "5433"}]}),
+        item("my", "mysql:8", ["MYSQL_USER=app", "MYSQL_PASSWORD=apw", "MYSQL_ROOT_PASSWORD=r", "MYSQL_DATABASE=shop"],
+             nets={"bridge": {"IPAddress": "172.17.0.3"}}),
+        item("maria", "mariadb:11", ["MARIADB_ROOT_PASSWORD=r=1"], mode="host"),
+        item("stopped", "postgres:16", [], nets={"bridge": {"IPAddress": "172.17.0.9"}}, running=False),
+        item("web", "nginx", [], nets={"bridge": {"IPAddress": "172.17.0.5"}}),
+        item("nonet", "postgres:16", [], mode="none"),
+    ]
+    found = {t.container: t for t in parse_inspect_targets(json.dumps(data))}
+    assert set(found) == {"pg", "pub", "my", "maria"}
+    assert (found["pg"].host, found["pg"].port, found["pg"].user, found["pg"].database, found["pg"].password) == \
+        ("172.18.0.2", 5432, "postgres", "postgres", "pw")
+    assert (found["pub"].host, found["pub"].port, found["pub"].user, found["pub"].database) == ("127.0.0.1", 5433, "u", "d")
+    assert (found["my"].kind, found["my"].user, found["my"].password, found["my"].database) == ("mysql", "app", "apw", "shop")
+    assert (found["maria"].host, found["maria"].port, found["maria"].user, found["maria"].password) == \
+        ("127.0.0.1", 3306, "root", "r=1")
+    assert "pw" not in repr(found["pg"])
+    assert parse_inspect_targets("not json") == [] and parse_inspect_targets("") == []
