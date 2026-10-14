@@ -1043,7 +1043,10 @@ def test_tool_cards_can_be_made_narrow(qapp, tmp_path) -> None:
         raise OSError("offline")
 
     for card in (DockerPane(ConnectionSpec.ssh("box"), no_ssh), SqlPane(ConnectionSpec.ssh("box"), no_ssh, app_dir=tmp_path)):
-        assert card.minimumSizeHint().width() < 300  # the content scrolls instead of widening the split
+        card.show_content()
+        header = card.layout().itemAt(0).widget().minimumSizeHint().width()
+        # only the title bar sets the minimum (font sizes differ per OS); the content scrolls instead
+        assert card.minimumSizeHint().width() <= header + 10 < card.content.minimumSizeHint().width()
         card.close_session()
         card.deleteLater()
     _flush()

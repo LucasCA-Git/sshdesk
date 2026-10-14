@@ -90,7 +90,11 @@ class ServerPane(PaneBase):
         self._toast_timer.setSingleShot(True)
         self._toast_timer.timeout.connect(self.toast.hide)
         self.restyle()
-        QTimer.singleShot(0, self.connect_host)
+        # a child timer dies with the card: a card closed before the event loop runs never connects
+        self._start_timer = QTimer(self)
+        self._start_timer.setSingleShot(True)
+        self._start_timer.timeout.connect(self.connect_host)
+        self._start_timer.start(0)
 
     def _fit_stack(self, _index: int = 0) -> None:
         """Only the page on screen counts for the card's minimum size (the scroll area handles the rest)."""
