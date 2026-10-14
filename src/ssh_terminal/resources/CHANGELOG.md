@@ -3,6 +3,11 @@
 All notable changes to VeyLix. The newest version is at the top.
 Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
+## [1.4.4] - 2026-10-14
+
+### Improved
+- A tab with two or more panels is called **Workstation 1**, **Workstation 2** and so on (with the number of panels next to it); hover it to see which hosts it holds. A tab with a single host keeps that host's name, and goes back to it when you close the other panels.
+
 ## [1.4.3] - 2026-10-14
 
 ### Improved
