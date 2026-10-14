@@ -183,7 +183,7 @@ class SettingsDialog(QDialog):
         self.copy_on_select = QCheckBox("Copy on select")
         self.copy_on_select.setChecked(s.copy_on_select)
         form.addRow("", self.copy_on_select)
-        self.paste_right = QCheckBox("Paste on right click (copy if text is selected)")
+        self.paste_right = QCheckBox("Paste on right click (Shift+right click opens the menu)")
         self.paste_right.setChecked(s.paste_on_right_click)
         form.addRow("", self.paste_right)
         self.bell = QComboBox()

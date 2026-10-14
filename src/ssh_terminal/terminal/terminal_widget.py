@@ -653,13 +653,14 @@ class TerminalWidget(QAbstractScrollArea):
             mode = QClipboard.Mode.Selection if QGuiApplication.clipboard().supportsSelection() else QClipboard.Mode.Clipboard
             self.paste(mode)
         elif button == Qt.MouseButton.RightButton:
-            if self.settings.paste_on_right_click:
-                if self.has_selection():
-                    self.copy()
+            if self.settings.paste_on_right_click and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                if self.has_selection() and not self.settings.copy_on_select:
+                    self.copy()  # select, right click = copy; right click again = paste
                     self.clear_selection()
-                else:
+                else:  # the selection was already copied when it was made: paste it
+                    self.clear_selection()
                     self.paste()
-            else:
+            else:  # Shift+right click always opens the menu
                 self.context_menu_requested.emit(event.globalPosition().toPoint())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802

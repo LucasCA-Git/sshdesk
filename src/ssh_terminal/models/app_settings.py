@@ -106,8 +106,9 @@ class AppSettings:
     cursor_style: str = "block"  # block | underline | bar
     cursor_blink: bool = True
     scrollback_lines: int = 10000
-    copy_on_select: bool = False
-    paste_on_right_click: bool = False
+    copy_on_select: bool = True  # like Termius/PuTTY: selecting copies, right click pastes
+    paste_on_right_click: bool = True
+    mouse_clipboard_v2: bool = True  # False in configs saved before these became the default
     bell: str = "visual"  # none | visual | sound
     term_type: str = "xterm-256color"
     # SSH
@@ -163,6 +164,9 @@ class AppSettings:
             elif isinstance(default_value, type(value)):
                 kwargs[f.name] = value
         settings = cls(**kwargs)
+        if not data.get("mouse_clipboard_v2"):  # older config: both were off by default, switch them on once
+            settings.copy_on_select = settings.paste_on_right_click = True
+            settings.mouse_clipboard_v2 = True
         merged = dict(DEFAULT_KEYBINDINGS)
         merged.update({k: v for k, v in settings.keybindings.items() if k in DEFAULT_KEYBINDINGS and isinstance(v, str)})
         settings.keybindings = merged

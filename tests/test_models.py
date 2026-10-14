@@ -149,3 +149,13 @@ def test_group_names_normalised_on_load() -> None:
 
     s = AppSettings.from_dict({"groups": {"Prod / EU": ["a"], "Prod/EU": ["a", "b"], " / ": ["c"], "x": "bad"}})
     assert s.groups == {"Prod/EU": ["a", "b"]}
+
+
+def test_copy_on_select_and_right_click_paste_are_on_by_default() -> None:
+    assert AppSettings().copy_on_select and AppSettings().paste_on_right_click
+    # a config saved before they were the default (both False) is switched on once...
+    old = AppSettings.from_dict({"copy_on_select": False, "paste_on_right_click": False})
+    assert old.copy_on_select and old.paste_on_right_click and old.mouse_clipboard_v2
+    # ...and turning them off afterwards sticks
+    off = AppSettings.from_dict({**old.to_dict(), "copy_on_select": False, "paste_on_right_click": False})
+    assert not off.copy_on_select and not off.paste_on_right_click

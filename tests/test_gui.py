@@ -1050,3 +1050,39 @@ def test_tool_cards_can_be_made_narrow(qapp, tmp_path) -> None:
         card.close_session()
         card.deleteLater()
     _flush()
+
+
+def test_select_copies_and_right_click_pastes(qapp) -> None:
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QGuiApplication, QMouseEvent
+
+    from ssh_terminal.models.app_settings import AppSettings
+    from ssh_terminal.terminal.terminal_widget import TerminalWidget
+
+    w = TerminalWidget(AppSettings())
+    w.resize(400, 200)
+    w.show()
+    sent: list[bytes] = []
+    w.input_ready.connect(sent.append)
+    w.feed(b"hello world")
+    process(qapp)
+    cw, chh = w.cell_size
+    vp = w.viewport()
+    left, right, none = Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier
+
+    def mouse(kind, x, button, buttons, mods=none):  # noqa: ANN001, ANN202
+        pos = QPointF(x, chh / 2)
+        QApplication.sendEvent(vp, QMouseEvent(kind, pos, vp.mapToGlobal(pos), button, buttons, mods))
+
+    QGuiApplication.clipboard().setText("")
+    mouse(QEvent.Type.MouseButtonPress, cw * 0.2, left, left)
+    mouse(QEvent.Type.MouseMove, cw * 4.6, Qt.MouseButton.NoButton, left)
+    mouse(QEvent.Type.MouseButtonRelease, cw * 4.6, left, Qt.MouseButton.NoButton)
+    assert QGuiApplication.clipboard().text() == "hello"  # selecting copies
+    mouse(QEvent.Type.MouseButtonPress, cw * 8, right, right)
+    assert sent == [b"hello"] and not w.has_selection()  # right click pastes
+    menus = []
+    w.context_menu_requested.connect(menus.append)
+    mouse(QEvent.Type.MouseButtonPress, cw * 8, right, right, Qt.KeyboardModifier.ShiftModifier)
+    assert menus and sent == [b"hello"]  # Shift+right click: the menu, no paste
+    w.deleteLater()
