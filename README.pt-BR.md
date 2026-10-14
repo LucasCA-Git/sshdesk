@@ -61,12 +61,14 @@ Abas e splits, digitação em vários terminais, gerenciador de arquivos SFTP co
 - **Logs** abaixo da tabela: últimas *N* linhas, *Seguir* em tempo real, timestamps e *Parar leitura*. Linhas WARN em amarelo e ERROR em vermelho, com limite de 10.000 linhas na memória.
 - **Imagens**: baixar `imagem:tag` com progresso, remover e limpar as não usadas.
 - Ajuda clara quando o Docker não está instalado, o serviço está parado ou o seu usuário não tem acesso ao socket: use **sudo** (a senha fica só na memória) ou copie o comando `usermod -aG docker`.
+- **Abrir no console SQL** em um container PostgreSQL/MySQL/MariaDB: o console abre ao lado do card do Docker com endereço e login do banco já preenchidos, mesmo quando a porta não está publicada.
+- Os botões de container e banco de um terminal SSH abrem o painel logo ao lado dele; arraste qualquer painel pela barra de título até o título de outra aba para levá-lo para lá.
 
 <p align="center"><img src="docs/images/docker.png" alt="Docker: containers com ações e logs ao vivo" width="820"></p>
 
 ### Console SQL
 
-- **MySQL / MariaDB e PostgreSQL por túnel SSH**: o banco não precisa estar exposto. O VeyLix encaminha uma porta local até `127.0.0.1:3306/5432` *como o servidor enxerga*, e sugere os bancos publicados por containers Docker.
+- **MySQL / MariaDB e PostgreSQL por túnel SSH**: o banco não precisa estar exposto. O VeyLix encaminha uma porta local até `127.0.0.1:3306/5432` *como o servidor enxerga*, e sugere os bancos que rodam em containers Docker (publicados ou não).
 - Tabelas do banco com filtro (clique = `SELECT * … LIMIT 100`), estrutura e contagem de linhas. Editor com cores de SQL e autocompletar de palavras-chave, tabelas e colunas; **Ctrl+Enter** executa a seleção ou a instrução sob o cursor.
 - Grade de resultados rápida mesmo com milhares de linhas: ordenação, `NULL` destacado, copiar célula/linha, **exportar CSV/JSON**, *Máximo de linhas*, tempo limite e **Cancelar consulta**.
 - **Histórico** por servidor; confirmação antes de `DROP`, `TRUNCATE` e `DELETE`/`UPDATE` sem `WHERE`; modo **somente leitura** opcional. Senhas só são guardadas se você marcar *Lembrar*, criptografadas no cofre do sistema ou no cofre local.

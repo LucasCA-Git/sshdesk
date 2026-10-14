@@ -62,12 +62,14 @@ Tabs and splits, broadcast input, an SFTP file manager with drag and drop, Docke
 - **Logs** next to the table: last *N* lines, *Follow* live, timestamps, *Stop reading*. WARN lines in yellow and ERROR in red, memory capped at 10,000 lines.
 - **Images**: pull `image:tag` with progress, remove, clean up unused images.
 - Clear help when Docker is missing, the daemon is stopped or your user cannot use the socket: run it through **sudo** (password kept in memory only) or copy the `usermod -aG docker` fix.
+- **Open in SQL console** on a PostgreSQL/MySQL/MariaDB container: the console opens beside the Docker card with the database's address and login already filled in, even when its port is not published.
+- The container and database buttons on an SSH terminal open the panel right next to it; drag any panel by its title bar onto another tab's title to move it there.
 
 <p align="center"><img src="docs/images/docker.png" alt="Docker: containers with actions and live logs" width="820"></p>
 
 ### SQL console
 
-- **MySQL / MariaDB and PostgreSQL through an SSH tunnel**: the database never has to be exposed. VeyLix forwards a local port to `127.0.0.1:3306/5432` *as seen from the server*, and it suggests databases published by Docker containers.
+- **MySQL / MariaDB and PostgreSQL through an SSH tunnel**: the database never has to be exposed. VeyLix forwards a local port to `127.0.0.1:3306/5432` *as seen from the server*, and it suggests the databases running in Docker containers (published or not).
 - Tables of the database with a filter (click = `SELECT * … LIMIT 100`), structure, row count. Editor with SQL colors and completion of keywords, tables and columns; **Ctrl+Enter** runs the selection or the statement under the cursor.
 - Results grid that stays fast with thousands of rows: sort, `NULL` highlighted, copy cell/row, **export CSV/JSON**, *Max rows*, timeout and **Cancel query**.
 - **History** per server; a confirmation before `DROP`, `TRUNCATE` and `DELETE`/`UPDATE` without `WHERE`; an optional **read-only** mode. Passwords are only stored if you tick *Remember*, encrypted in the system keyring or the local vault.
