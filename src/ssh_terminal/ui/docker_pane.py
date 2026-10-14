@@ -6,7 +6,7 @@ import threading
 from html import escape
 from typing import Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, QTimer
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QSyntaxHighlighter, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -37,6 +37,7 @@ from ssh_terminal.services.docker_service import (
     Image,
     Problem,
     allowed_actions,
+    is_database_image,
     safe_ref,
 )
 from ssh_terminal.ui.dialogs import mark_primary
@@ -196,6 +197,7 @@ def _table(model: QAbstractTableModel | QSortFilterProxyModel) -> QTableView:
 # ---------------------------------------------------------------------- #
 class DockerPane(ServerPane):
     ICON = "container"
+    sql_requested = Signal(object, object)  # ConnectionSpec, DatabaseCandidate: open the SQL console on it
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         self.docker: DockerClient | None = None
@@ -296,6 +298,10 @@ class DockerPane(ServerPane):
             bar.addWidget(button)
             self.action_buttons[key] = button
         bar.addStretch(1)
+        self.sql_button = QPushButton(tr("Open in SQL console"))
+        self.sql_button.setToolTip(tr("Open this database in the SQL console, beside this panel"))
+        self.sql_button.clicked.connect(self.open_in_sql)
+        bar.addWidget(self.sql_button)
         self.logs_button = QPushButton(tr("Container logs"))
         self.logs_button.clicked.connect(self.show_logs)
         bar.addWidget(self.logs_button)
@@ -454,6 +460,9 @@ class DockerPane(ServerPane):
         for key, button in self.action_buttons.items():
             button.setEnabled(key in allowed and not self._busy_action)
         self.logs_button.setEnabled(c is not None)
+        is_db = c is not None and is_database_image(c.image)
+        self.sql_button.setVisible(is_db)
+        self.sql_button.setEnabled(is_db and c.running and not self._busy_action)
 
     def _image_selection_changed(self) -> None:
         self.remove_image_button.setEnabled(bool(self.image_table.selectionModel().selectedRows()))
@@ -489,6 +498,30 @@ class DockerPane(ServerPane):
             self.handle_error(exc)
 
         self.task(lambda: self.docker.action(action, c.id, force, volumes), done, failed, name="docker-action")
+
+    def open_in_sql(self) -> None:
+        """Find the database's address and login (docker inspect) and hand it to the SQL console."""
+        c = self.selected_container()
+        if c is None or self.docker is None or not c.running:
+            return
+        docker = self.docker
+        self.sql_button.setEnabled(False)
+        self.show_toast(tr("Reading the settings of {name}…", name=c.name), "info", 30_000)
+
+        def done(found: object) -> None:
+            self._selection_changed()
+            targets = list(found or [])
+            if not targets:
+                self.show_toast(tr("{name}: no database address found (is it on a Docker network?).", name=c.name), "warn")
+                return
+            self.show_toast(tr("Opening the SQL console…"), "ok", 3000)
+            self.sql_requested.emit(self.spec, targets[0])
+
+        def failed(exc: BaseException) -> None:
+            self._selection_changed()
+            self.handle_error(exc)
+
+        self.task(lambda: docker.database_targets([c]), done, failed, name="docker-inspect")
 
     def _confirm_remove(self, c: Container) -> tuple[bool, bool] | None:
         box = QMessageBox(self)

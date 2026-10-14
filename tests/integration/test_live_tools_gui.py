@@ -105,6 +105,36 @@ def test_docker_pane(window, qapp) -> None:  # noqa: ANN001
     shot(pane, "docker-images")
 
 
+@pytest.mark.skipif(not os.environ.get("VEYLIX_LIVE_DOCKER"), reason="set VEYLIX_LIVE_DOCKER=1")
+def test_docker_open_in_sql_console(window, qapp, monkeypatch) -> None:  # noqa: ANN001
+    """Docker card → “Open in SQL console” on an unpublished database: the console opens beside it."""
+    import ssh_terminal.ui.sql_pane as sp
+
+    seen = []
+    monkeypatch.setattr(sp.SqlPane, "ask_connection", lambda self: seen.append(self.preset))
+    pane = window.open_tool("docker", "box")
+    wait_for(qapp, lambda: pane.model.items)
+    runner = pane.runner
+    image = runner.run("docker images --format '{{.Repository}}:{{.Tag}}' | head -1").out.strip()
+    runner.run(f"docker tag {image} postgres:16-veylix")
+    try:
+        assert runner.run("docker run -d --name vx-gui-pg -e POSTGRES_PASSWORD=pw postgres:16-veylix sleep 600").ok
+        pane.refresh()
+        wait_for(qapp, lambda: any(c.name == "vx-gui-pg" for c in pane.model.items))
+        pane._select(next(c.id for c in pane.model.items if c.name == "web"))
+        assert pane.sql_button.isHidden()  # not a database image
+        pane._select(next(c.id for c in pane.model.items if c.name == "vx-gui-pg"))
+        assert pane.sql_button.isEnabled() and not pane.sql_button.isHidden()
+        pane.sql_button.click()
+        wait_for(qapp, lambda: seen)
+        page = window.tabs.current_page()
+        assert len(page.items()) == 2 and isinstance(page._root().widget(1), sp.SqlPane)  # right of Docker
+        assert (seen[0].container, seen[0].kind, seen[0].port, seen[0].user, seen[0].password) == \
+            ("vx-gui-pg", "postgres", 5432, "postgres", "pw")
+    finally:
+        runner.run("docker rm -f vx-gui-pg; docker rmi postgres:16-veylix")
+
+
 @pytest.mark.parametrize("env,kind", [("VEYLIX_LIVE_MYSQL", "mysql"), ("VEYLIX_LIVE_POSTGRES", "postgres")])
 def test_sql_pane(window, qapp, monkeypatch, env: str, kind: str) -> None:  # noqa: ANN001
     if not os.environ.get(env):

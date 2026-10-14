@@ -292,7 +292,8 @@ class ResultSort(QSortFilterProxyModel):
 # ---------------------------------------------------------------------- #
 class SqlConnectDialog(QDialog):
     def __init__(self, host: str, profiles: list[SqlProfile], candidates: list[DatabaseCandidate],
-                 password_for, parent: QWidget | None = None) -> None:  # noqa: ANN001
+                 password_for, parent: QWidget | None = None,  # noqa: ANN001
+                 preferred: DatabaseCandidate | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("Connect to a database on {host}", host=host))
         self.setMinimumWidth(460)
@@ -347,7 +348,11 @@ class SqlConnectDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(ok)
         layout.addLayout(buttons)
-        if profiles:
+        start = next((i for i in range(1, self.saved.count()) if preferred is not None
+                      and self.saved.itemData(i) == preferred), -1)
+        if start > 0:
+            self.saved.setCurrentIndex(start)
+        elif profiles:
             self.saved.setCurrentIndex(1)
 
     def _kind_changed(self) -> None:
@@ -370,8 +375,10 @@ class SqlConnectDialog(QDialog):
             self.kind.setCurrentIndex(self.kind.findData(data.kind))
             self.host.setText(data.host)
             self.port.setValue(data.port)
-            if not self.user.text():
-                self.user.setText("postgres" if data.kind == "postgres" else "root")
+            self.user.setText(data.user or self.user.text() or ("postgres" if data.kind == "postgres" else "root"))
+            self.database.setText(data.database)
+            self.password.setText(data.password)  # from the container's environment, never saved unless asked
+            self.remember.setChecked(False)
             self.password.setFocus()
 
     def _accept(self) -> None:
@@ -395,8 +402,9 @@ class SqlPane(ServerPane):
     ICON = "database"
 
     def __init__(self, spec, open_ssh, credentials=None, app_dir: Path | None = None,  # noqa: ANN001
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, preset: DatabaseCandidate | None = None) -> None:
         self.credentials = credentials
+        self.preset = preset  # database picked in the Docker panel: offered first
         base = app_dir or get_app_dir()
         self.profiles = ProfileStore(base / "sql_connections.json")
         self.history = HistoryStore(base / "sql_history.json")
@@ -616,19 +624,29 @@ class SqlPane(ServerPane):
         if runner is None or self.connection_lost():
             return
 
-        def detect() -> list[DatabaseCandidate]:  # databases published by Docker containers (best effort)
+        def detect() -> list[DatabaseCandidate]:  # databases in Docker containers (best effort)
             try:
-                return database_candidates(DockerClient(runner).containers())
+                client = DockerClient(runner)
+                containers = client.containers()
             except Exception:  # noqa: BLE001 - no Docker / no permission: nothing to suggest
                 return []
+            try:
+                found = client.database_targets(containers)  # also unpublished ones, with their login
+            except Exception:  # noqa: BLE001 - fall back to the published ports in `docker ps`
+                found = []
+            names = {c.container for c in found}
+            return found + [c for c in database_candidates(containers) if c.container not in names]
 
         self.other_button.setEnabled(False)
         self.task(detect, self._open_dialog, lambda _e: self._open_dialog([]), name="sql-detect")
 
     def _open_dialog(self, candidates: list[DatabaseCandidate]) -> None:
         self.other_button.setEnabled(True)
+        preset = self.preset
+        if preset is not None:
+            candidates = [preset] + [c for c in candidates if c.container != preset.container]
         dlg = SqlConnectDialog(self.spec.title, self.profiles.profiles(self.spec.alias), candidates,
-                               self._password_for, self)
+                               self._password_for, self, preferred=preset)
         if dlg.exec():
             self.connect_db(dlg.profile(), dlg.password.text())
 

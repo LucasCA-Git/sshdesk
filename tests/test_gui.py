@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from ssh_terminal.models.connection import ConnectionSpec, SessionState  # noqa: E402
+from ssh_terminal.ui.host_picker import ALIAS_ROLE  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -272,10 +273,13 @@ def test_split_menu_lists_hosts_and_shells(window, qapp) -> None:
     pane = window.open_spec(ConnectionSpec.local(""))
     menu = QMenu()
     window._fill_split_menu(menu, pane, Qt.Orientation.Horizontal)
-    texts = [a.text() for a in menu.actions()]
-    assert texts[0].startswith("Same Connection")
-    assert any(t.startswith("server-prod") for t in texts)
-    pane.close_session()
+    try:
+        texts = [a.text() for a in menu.actions()]
+        assert texts[0].startswith("Same Connection")
+        picker = _pickers(menu)[-1]  # "SSH hosts" (the first one is inside "Files (SFTP)")
+        assert "server-prod" in [i.data(0, ALIAS_ROLE) for i in picker.hosts()]
+    finally:
+        pane.close_session()
 
 
 def test_nested_splits_keep_every_pane(window, qapp) -> None:
@@ -459,7 +463,8 @@ def test_split_menu_offers_files(window, qapp) -> None:
     window._fill_split_menu(menu, pane, Qt.Orientation.Horizontal)
     files = [a for a in menu.actions() if a.text() == "Files (SFTP)"][0].menu()
     labels = [a.text() for a in files.actions()]
-    assert labels[0] == "This Computer" and any(t.startswith("server-hml") for t in labels)
+    hosts = [i.data(0, ALIAS_ROLE) for i in _pickers(files)[0].hosts()]
+    assert labels[0] == "This Computer" and "server-hml" in hosts
     files.actions()[0].trigger()
     from ssh_terminal.ui.file_pane import FilePane
 
@@ -833,20 +838,150 @@ def test_sidebar_host_drag_carries_alias(window) -> None:
     assert not tree.mimeData([tree.topLevelItem(0)]).hasFormat(HOST_MIME)  # sections are not hosts
 
 
+def _flush() -> None:
+    for _ in range(5):
+        QApplication.processEvents()
+
+
+def _pickers(menu):  # noqa: ANN001, ANN202
+    from PySide6.QtWidgets import QWidgetAction
+
+    from ssh_terminal.ui.host_picker import HostPicker
+
+    found = []
+    for action in menu.actions():
+        if isinstance(action, QWidgetAction) and isinstance(action.defaultWidget(), HostPicker):
+            found.append(action.defaultWidget())
+        elif action.menu() is not None:
+            found.extend(_pickers(action.menu()))
+    return found
+
+
+def _tree_labels(item):  # noqa: ANN001, ANN202
+    return [item.child(i).text(0) for i in range(item.childCount())]
+
+
 def test_split_menu_groups_hosts_like_the_sidebar(window) -> None:
     from PySide6.QtWidgets import QMenu
 
     window.settings.groups = {"Prod": ["server-prod"], "Prod/Web": ["server-hml"]}
     window.settings.favorites = ["bastion"]
     menu = QMenu()
-    window._host_actions(menu, lambda alias: None)
-    top = [a.text() for a in menu.actions() if not a.isSeparator()]
+    picked = []
+    window.ensure_team_login = lambda alias: True
+    window._host_actions(menu, picked.append)
+    picker = _pickers(menu)[0]
+    root = picker.tree.invisibleRootItem()
+    top = _tree_labels(root)
     assert top[0].startswith("bastion")  # favorites first
-    prod = next(a.menu() for a in menu.actions() if a.text() == "Prod")
-    inside = [a.text() for a in prod.actions()]
+    prod = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "Prod")
+    inside = _tree_labels(prod)
     assert inside[0] == "Web" and any(t.startswith("server-prod") for t in inside)
-    web = next(a.menu() for a in prod.actions() if a.text() == "Web")
-    assert [a.text().split()[0] for a in web.actions()] == ["server-hml"]
+    assert [t.split()[0] for t in _tree_labels(prod.child(0))] == ["server-hml"]
     assert not any(t.startswith(("server-prod", "server-hml")) for t in top)  # not repeated at the top
-    flat = [a.text() for a in menu.actions()] + inside + [a.text() for a in web.actions()]
-    assert sum(t.startswith("bastion") for t in flat) == 1  # a favorite is listed once
+    assert sum(i.data(0, ALIAS_ROLE) == "bastion" for i in picker.hosts()) == 1  # a favorite is listed once
+    # the search keeps a group's path visible and hides the rest
+    picker.search.setText("hml")
+    assert [i.data(0, ALIAS_ROLE) for i in picker.hosts(visible_only=True)] == ["server-hml"]
+    assert not prod.isHidden() and prod.isExpanded()
+    picker.search.setText("web")  # a matching group shows its hosts
+    assert [i.data(0, ALIAS_ROLE) for i in picker.hosts(visible_only=True)] == ["server-hml"]
+    # clicking a group folds it; clicking a host picks it (after the menu closes)
+    picker.search.setText("")
+    expanded = prod.isExpanded()
+    picker._clicked(prod, 0)
+    assert prod.isExpanded() is not expanded and picked == []
+    picker._clicked(prod.child(0).child(0), 0)
+    _flush()
+    assert picked == ["server-hml"]
+
+
+def test_pane_can_be_docked_beside_a_pane_of_another_tab(window, qapp) -> None:
+    a = window.open_spec(ConnectionSpec.local(""))
+    page_a = window.tabs.current_page()
+    b = window.open_spec(ConnectionSpec.local(""))  # a second tab
+    page_b = window.tabs.current_page()
+    _flush()
+    assert page_a is not page_b and window.tabs.count() == 2
+    try:
+        window.tabs.move_pane(b, a, Qt.Orientation.Horizontal, False)
+        assert window.tabs.count() == 1 and window.tabs.current_page() is page_a  # the emptied tab is gone
+        assert page_a.items() == [a, b] or set(page_a.items()) == {a, b}
+        root = page_a._root()
+        assert root.orientation() == Qt.Orientation.Horizontal and root.widget(1) is b
+        # signals follow the pane to its new tab
+        a.activated.emit(a)
+        assert page_a.active_item is a
+        b.activated.emit(b)
+        assert page_a.active_item is b and window.tabs.current_item() is b
+    finally:
+        _flush()
+        for p in page_a.items():
+            p.close_session()
+
+
+def test_hovering_a_tab_title_while_dragging_switches_tab(window, qapp) -> None:
+    a = window.open_spec(ConnectionSpec.local(""))
+    page_a = window.tabs.current_page()
+    b = window.open_spec(ConnectionSpec.local(""))
+    _flush()
+    try:
+        window.tabs._dragging = b
+        window.tabs._hover_tab(window.tabs.indexOf(page_a))
+        assert window.tabs.current_page() is page_a
+        assert page_a.overlay is not None and page_a.overlay.source is b and not page_a.overlay.isHidden()
+    finally:
+        window.tabs._dragging = None
+        window.tabs.end_host_drag()
+        _flush()
+        a.close_session()
+        b.close_session()
+
+
+def test_tool_buttons_open_beside_the_terminal(window, qapp, monkeypatch) -> None:
+    from ssh_terminal.ui.docker_pane import DockerPane
+    from ssh_terminal.ui.sql_pane import SqlPane
+
+    def no_ssh(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise OSError("offline in tests")
+
+    monkeypatch.setattr(window.connections, "open_ssh", no_ssh)
+    window.ensure_team_login = lambda alias: True
+    pane = window.open_spec(ConnectionSpec.ssh("server-hml"))
+    page = window.tabs.current_page()
+    _flush()
+    try:
+        window._pane_action(pane, "docker")
+        docker = next(i for i in page.items() if isinstance(i, DockerPane))
+        assert window.tabs.count() == 1 and page._root().widget(1) is docker  # to the right, same tab
+        # Docker → "Open in SQL console": the console opens beside the Docker card, the database preselected
+        from ssh_terminal.services.docker_service import DatabaseCandidate
+
+        cand = DatabaseCandidate("db", "postgres", 5432, "postgres:16", "172.17.0.4", "app", "shop", "pw")
+        docker.sql_requested.emit(docker.spec, cand)
+        sql = next(i for i in page.items() if isinstance(i, SqlPane))
+        assert sql.preset is cand and window.tabs.count() == 1
+        _flush()
+        # the split menu offers the tools too
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu()
+        window._fill_split_menu(menu, pane, Qt.Orientation.Vertical)
+        assert any(a.text() == "Docker on server-hml" for a in menu.actions())
+    finally:
+        for p in page.items():
+            p.close_session()
+
+
+def test_sql_dialog_prefills_a_docker_database(qapp) -> None:
+    from ssh_terminal.services.docker_service import DatabaseCandidate
+    from ssh_terminal.ui.sql_pane import SqlConnectDialog
+
+    cand = DatabaseCandidate("db", "postgres", 5432, "postgres:16", "172.17.0.4", "app", "shop", "pw")
+    other = DatabaseCandidate("my", "mysql", 3307, "mariadb:11")
+    dlg = SqlConnectDialog("box", [], [other, cand], lambda _p: None, preferred=cand)
+    assert dlg.saved.currentData() is cand
+    assert (dlg.host.text(), dlg.port.value(), dlg.user.text(), dlg.database.text(), dlg.password.text()) == \
+        ("172.17.0.4", 5432, "app", "shop", "pw")
+    assert not dlg.remember.isChecked()
+    dlg.deleteLater()
