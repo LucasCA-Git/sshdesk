@@ -3,6 +3,24 @@
 All notable changes to VeyLix. The newest version is at the top.
 Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
+## [1.4.2] - 2026-10-14
+
+### Improved
+- Pull a tab down out of the tab bar to dock its panel beside another one: VeyLix switches to the tab you came from and shows where it can go (left, right, top or bottom). You can also drop it on another tab's title to place it on the right of that tab's panel, or hover a title to open that tab first.
+
+### Fixed
+- Docker and SQL console cards could not be made narrower than their buttons, so dragging the divider between panels jumped and pushed the whole tab off screen. The cards now scroll when they are narrow, and the divider moves freely.
+
+## [1.4.1] - 2026-10-14
+
+### New
+- **Open in SQL console** from the Docker tab: select a running PostgreSQL/MySQL/MariaDB container and the SQL console opens beside the Docker card with that database chosen and its user, database and password filled in from the container's settings. It also works when the port is not published (VeyLix uses the container's address on its Docker network). The SQL console's own list of detected databases now includes these containers too.
+- Docker and SQL console beside your terminal: the container and database buttons on an SSH terminal now open the panel to the right of that terminal instead of in a new tab, and the split menu has a *Server tools* section with both.
+- Drag a panel to another tab: while dragging a terminal, Docker or SQL card by its title bar, hover a tab's title to switch to it and drop the panel beside any of its panels. A tab left empty closes by itself.
+
+### Fixed
+- The host list in the split menu (and in *Files (SFTP)*) is now a searchable tree inside the menu: click a group to open or close it, click a host (or type and press Enter) to open it. The cascading group submenus did not open on some Windows setups.
+
 ## [1.4.0] - 2026-10-13
 
 ### New

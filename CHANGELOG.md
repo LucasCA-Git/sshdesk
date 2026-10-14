@@ -3,6 +3,14 @@
 All notable changes to VeyLix. The newest version is at the top.
 Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
+## [1.4.2] - 2026-10-14
+
+### Improved
+- Pull a tab down out of the tab bar to dock its panel beside another one: VeyLix switches to the tab you came from and shows where it can go (left, right, top or bottom). You can also drop it on another tab's title to place it on the right of that tab's panel, or hover a title to open that tab first.
+
+### Fixed
+- Docker and SQL console cards could not be made narrower than their buttons, so dragging the divider between panels jumped and pushed the whole tab off screen. The cards now scroll when they are narrow, and the divider moves freely.
+
 ## [1.4.1] - 2026-10-14
 
 ### New

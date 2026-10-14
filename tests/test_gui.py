@@ -985,3 +985,65 @@ def test_sql_dialog_prefills_a_docker_database(qapp) -> None:
         ("172.17.0.4", 5432, "app", "shop", "pw")
     assert not dlg.remember.isChecked()
     dlg.deleteLater()
+
+
+def test_pulling_a_tab_down_docks_its_panel_next_to_the_previous_tab(window, qapp, monkeypatch) -> None:
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    import ssh_terminal.ui.terminal_tabs as tt
+
+    window.open_spec(ConnectionSpec.local(""))
+    page_a = window.tabs.current_page()
+    b = window.open_spec(ConnectionSpec.local(""))  # its own tab, now the current one
+    page_b = window.tabs.current_page()
+    _flush()
+    seen = {}
+
+    class FakeDrag:  # QDrag.exec blocks on a real desktop: record what the user would see instead
+        def __init__(self, source) -> None:  # noqa: ANN001
+            seen["source"] = source
+
+        def setMimeData(self, mime) -> None:  # noqa: ANN001, N802
+            seen["mime"] = mime
+
+        def setPixmap(self, _pixmap) -> None:  # noqa: ANN001, N802
+            pass
+
+        def exec(self, _action) -> None:  # noqa: ANN001
+            seen["page"] = window.tabs.current_page()
+            seen["overlay"] = page_a.overlay is not None and page_a.overlay.source is b
+
+    monkeypatch.setattr(tt, "QDrag", FakeDrag)
+    bar = window.tabs.tabBar()
+    try:
+        center = QPointF(bar.tabRect(window.tabs.indexOf(page_b)).center())
+        below = QPointF(center.x(), bar.height() + 40)
+        left, none = Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier
+        qapp.sendEvent(bar, QMouseEvent(QEvent.Type.MouseButtonPress, center, bar.mapToGlobal(center), left, left, none))
+        qapp.sendEvent(bar, QMouseEvent(QEvent.Type.MouseMove, below, bar.mapToGlobal(below), Qt.MouseButton.NoButton, left, none))
+        assert seen["source"] is b and seen["page"] is page_a and seen["overlay"]  # the tab it came from, with drop zones
+        # dropping on a tab title puts the panel to the right of that tab's panel
+        window.tabs._dragging = b
+        window.tabs._drop_on_tab(window.tabs.indexOf(page_a), seen["mime"])
+        window.tabs._dragging = None
+        _flush()
+        assert window.tabs.count() == 1 and page_a._root().widget(1) is b
+    finally:
+        _flush()
+        for p in page_a.items():
+            p.close_session()
+
+
+def test_tool_cards_can_be_made_narrow(qapp, tmp_path) -> None:
+    from ssh_terminal.ui.docker_pane import DockerPane
+    from ssh_terminal.ui.sql_pane import SqlPane
+
+    def no_ssh(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise OSError("offline")
+
+    for card in (DockerPane(ConnectionSpec.ssh("box"), no_ssh), SqlPane(ConnectionSpec.ssh("box"), no_ssh, app_dir=tmp_path)):
+        assert card.minimumSizeHint().width() < 300  # the content scrolls instead of widening the split
+        card.close_session()
+        card.deleteLater()
+    _flush()

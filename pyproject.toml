@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veylix"
-version = "1.4.1"
+version = "1.4.2"
 description = "VeyLix: secure access, total control. A unified workspace for server operations (SSH, SFTP, Docker, SQL), driven by your ~/.ssh/config"
 readme = "README.md"
 license = { text = "MIT" }
