@@ -3,6 +3,14 @@
 All notable changes to VeyLix. The newest version is at the top.
 Format: `## [version] - YYYY-MM-DD`, then `### Section` and `- item` lines.
 
+## [1.4.3] - 2026-10-14
+
+### Improved
+- Copy and paste with the mouse, like Termius and PuTTY: selecting text in a terminal copies it, and a right click pastes. Shift+right click opens the terminal menu. Both are on by default (also for existing installs) and can be switched off in Settings › Terminal.
+
+### Fixed
+- A Docker or SQL card closed right after opening no longer tries to connect in the background.
+
 ## [1.4.2] - 2026-10-14
 
 ### Improved
