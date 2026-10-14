@@ -17,9 +17,12 @@ from typing import Any
 import shiboken6
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -67,7 +70,16 @@ class ServerPane(PaneBase):
         self.content = self.build_content()
         self.stack.addWidget(self.content)
         self.stack.addWidget(self._build_message_page())
-        layout.addWidget(self.stack, 1)
+        # scrolls instead of forcing its minimum width on the split: the card can be made as narrow as you like
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("PaneScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setStyleSheet("#PaneScroll, #PaneScroll > QWidget > QWidget { background: transparent; }")
+        self.scroll.setWidget(self.stack)
+        self.stack.currentChanged.connect(self._fit_stack)
+        self._fit_stack()
+        layout.addWidget(self.scroll, 1)
         self.toast = QLabel()
         self.toast.setObjectName("Toast")
         self.toast.setWordWrap(True)
@@ -79,6 +91,15 @@ class ServerPane(PaneBase):
         self._toast_timer.timeout.connect(self.toast.hide)
         self.restyle()
         QTimer.singleShot(0, self.connect_host)
+
+    def _fit_stack(self, _index: int = 0) -> None:
+        """Only the page on screen counts for the card's minimum size (the scroll area handles the rest)."""
+        current = self.stack.currentWidget()
+        for i in range(self.stack.count()):
+            page = self.stack.widget(i)
+            policy = QSizePolicy.Policy.Preferred if page is current else QSizePolicy.Policy.Ignored
+            page.setSizePolicy(policy, policy)
+        self.stack.adjustSize()
 
     # -- to override ---------------------------------------------------------- #
     def kind_title(self) -> str:
